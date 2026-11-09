@@ -1,0 +1,591 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>glide · one keyboard and mouse for all your PCs</title>
+<meta name="description" content="glide shares one keyboard, mouse, clipboard and audio across your Windows PCs over the local network. Fast, encrypted, free and open source.">
+<meta property="og:title" content="glide">
+<meta property="og:description" content="One keyboard. One mouse. Every screen. Free and open source.">
+<meta property="og:image" content="https://d3osaju.github.io/glide/og.png">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#5b4fe0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'; connect-src https://api.github.com">
+<link rel="icon" type="image/png" href="icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #fbfbfc;
+  --panel: #ffffff;
+  --soft: #f4f4f7;
+  --line: #e8e8ed;
+  --line-2: #dadae1;
+  --text: #16161b;
+  --muted: #64646f;
+  --faint: #9d9da8;
+  --accent: #5b4fe0;
+  --accent-2: #7c6ff0;
+  --accent-soft: rgba(91,79,224,.08);
+  --on-accent: #fff;
+  --shadow: 0 1px 2px rgba(16,16,24,.04), 0 12px 40px -12px rgba(16,16,24,.12);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e0e10;
+    --panel: #151518;
+    --soft: #1a1a1e;
+    --line: #232328;
+    --line-2: #303037;
+    --text: #ededf1;
+    --muted: #92929d;
+    --faint: #5d5d67;
+    --accent: #8b80ff;
+    --accent-2: #a69dff;
+    --accent-soft: rgba(139,128,255,.1);
+    --on-accent: #0e0e12;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 20px 50px -20px rgba(0,0,0,.6);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e0e10; --panel: #151518; --soft: #1a1a1e; --line: #232328; --line-2: #303037;
+  --text: #ededf1; --muted: #92929d; --faint: #5d5d67; --accent: #8b80ff; --accent-2: #a69dff;
+  --accent-soft: rgba(139,128,255,.1); --on-accent: #0e0e12;
+  --shadow: 0 1px 2px rgba(0,0,0,.3), 0 20px 50px -20px rgba(0,0,0,.6);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 16px/1.6 Inter, "Segoe UI", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+}
+a { color: inherit; text-decoration: none; }
+.wrap { max-width: 1040px; margin: 0 auto; padding: 0 24px; }
+.mono { font-family: "Cascadia Mono", "SF Mono", ui-monospace, Consolas, monospace; }
+
+/* nav */
+nav { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(12px); border-bottom: 1px solid transparent; transition: border-color .2s; }
+nav.scrolled { border-bottom-color: var(--line); }
+nav .wrap { height: 60px; display: flex; align-items: center; gap: 28px; }
+.logo { display: flex; align-items: center; gap: 10px; font-weight: 650; font-size: 17px; letter-spacing: -.2px; }
+.logo img { width: 24px; height: 24px; border-radius: 6px; }
+.links { display: flex; gap: 24px; margin-left: auto; font-size: 14px; color: var(--muted); }
+.links a:hover { color: var(--text); }
+.gh { display: inline-flex; align-items: center; gap: 7px; }
+.gh svg { width: 16px; height: 16px; }
+@media (max-width: 640px) { .links .hide-sm { display: none; } }
+
+/* buttons */
+.btn {
+  display: inline-flex; align-items: center; gap: 9px; height: 46px; padding: 0 22px; border-radius: 11px;
+  font-weight: 600; font-size: 15px; border: 1px solid var(--line-2); background: var(--panel);
+  transition: transform .12s, background .15s, box-shadow .15s;
+}
+.btn:hover { background: var(--soft); }
+.btn:active { transform: translateY(1px); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); box-shadow: 0 8px 24px -10px var(--accent); }
+.btn.primary:hover { background: var(--accent-2); }
+.btn svg { width: 18px; height: 18px; }
+
+/* hero */
+.hero { padding: 88px 0 40px; text-align: center; }
+.eyebrow {
+  display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted);
+  border: 1px solid var(--line); border-radius: 99px; padding: 5px 12px 5px 8px; background: var(--panel);
+}
+.eyebrow .pill { background: var(--accent-soft); color: var(--accent); font-weight: 600; border-radius: 99px; padding: 1px 8px; font-size: 12px; }
+h1 { font-size: clamp(40px, 7vw, 68px); line-height: 1.04; letter-spacing: -2px; font-weight: 700; margin: 22px 0 18px; }
+h1 .dim { color: var(--faint); }
+.lede { font-size: clamp(17px, 2.2vw, 19px); color: var(--muted); max-width: 590px; margin: 0 auto; }
+.cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: 34px; }
+.meta { margin-top: 14px; font-size: 13px; color: var(--faint); }
+
+/* screens animation */
+.stage { margin: 64px auto 0; max-width: 860px; position: relative; }
+.screens { display: grid; grid-template-columns: 1fr 1.25fr 1fr; gap: 28px; align-items: end; }
+.device { display: flex; flex-direction: column; align-items: center; }
+.display {
+  width: 100%; aspect-ratio: 16 / 10; border-radius: 12px; border: 1.5px solid var(--line-2); background: var(--panel);
+  position: relative; overflow: hidden; transition: border-color .3s, box-shadow .3s;
+}
+.device.laptop .display { aspect-ratio: 16 / 10.5; border-radius: 10px 10px 4px 4px; }
+.device .base { width: 112%; height: 8px; border-radius: 0 0 10px 10px; background: var(--line-2); }
+.device .stand { width: 18%; height: 22px; background: linear-gradient(var(--line-2), var(--line)); }
+.device .foot { width: 34%; height: 5px; border-radius: 5px; background: var(--line-2); }
+.device .name { margin-top: 14px; font-size: 12.5px; color: var(--faint); font-weight: 500; }
+.display .bar { position: absolute; left: 10px; right: 10px; height: 6px; border-radius: 3px; background: var(--soft); }
+.display .bar:nth-child(1) { top: 14px; width: 40%; }
+.display .bar:nth-child(2) { top: 28px; width: 70%; }
+.display .bar:nth-child(3) { top: 42px; width: 55%; }
+.display .win { position: absolute; right: 12px; bottom: 12px; width: 42%; height: 40%; border-radius: 6px; background: var(--soft); }
+.device.on .display { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+.cursor {
+  position: absolute; width: 20px; height: 20px; top: 0; left: 0; z-index: 2; color: var(--text);
+  filter: drop-shadow(0 2px 3px rgba(0,0,0,.25)); pointer-events: none;
+}
+.trail { position: absolute; height: 2px; top: 0; left: 0; border-radius: 2px; background: linear-gradient(90deg, transparent, var(--accent)); opacity: 0; }
+
+/* app mock */
+.mock {
+  margin: 72px auto 0; max-width: 720px; border-radius: 14px; border: 1px solid var(--line); background: var(--panel);
+  box-shadow: var(--shadow); overflow: hidden; text-align: left;
+}
+.mock .tb { height: 36px; display: flex; align-items: center; gap: 10px; padding: 0 14px; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+.mock .tb b { font-weight: 650; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: #22c55e; display: inline-block; }
+.mock .tb .st { color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.mock .tb .wc { margin-left: auto; display: flex; gap: 14px; color: var(--faint); }
+.mock .body { padding: 26px 30px 30px; }
+.mock h3 { margin: 0; font-size: 19px; letter-spacing: -.3px; }
+.mock .sub { color: var(--muted); font-size: 13px; margin: 2px 0 20px; }
+.mock .lbl { font-size: 11.5px; font-weight: 600; color: var(--muted); margin-bottom: 7px; display: flex; justify-content: space-between; }
+.mock .code { display: flex; border: 1px solid var(--line-2); border-radius: 9px; overflow: hidden; font-size: 12.5px; }
+.mock .code span { flex: 1; padding: 9px 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mock .code em { font-style: normal; padding: 9px 14px; border-left: 1px solid var(--line-2); font-weight: 600; font-family: Inter, system-ui; }
+.mock .map { margin-top: 20px; border: 1px solid var(--line); border-radius: 10px; padding: 22px; display: flex; justify-content: center; gap: 10px; background: var(--bg); }
+.mock .tile { width: 116px; height: 70px; border: 1px solid var(--line-2); border-radius: 8px; display: grid; place-items: center; text-align: center; font-size: 12px; font-weight: 600; background: var(--panel); line-height: 1.3; }
+.mock .tile small { display: block; font-weight: 400; color: var(--muted); font-size: 10.5px; }
+.mock .tile.act { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+/* sections */
+section { padding: 110px 0 0; }
+.kicker { font-size: 13px; font-weight: 600; color: var(--accent); letter-spacing: .4px; text-transform: uppercase; }
+h2 { font-size: clamp(30px, 4.4vw, 42px); line-height: 1.12; letter-spacing: -1.1px; margin: 10px 0 14px; font-weight: 700; }
+.section-lede { color: var(--muted); max-width: 560px; margin: 0; font-size: 17px; }
+
+.features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; margin-top: 44px; }
+.feature { background: var(--panel); padding: 28px 26px 30px; }
+.feature .ic { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); margin-bottom: 18px; }
+.feature .ic svg { width: 19px; height: 19px; }
+.feature h4 { margin: 0 0 6px; font-size: 16px; letter-spacing: -.2px; }
+.feature p { margin: 0; color: var(--muted); font-size: 14.5px; }
+.feature .num { font-size: 13px; color: var(--accent); font-weight: 600; margin-top: 12px; }
+@media (max-width: 860px) { .features { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 560px) { .features { grid-template-columns: 1fr; } }
+
+.steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 44px; counter-reset: s; }
+.step { border-top: 1px solid var(--line-2); padding-top: 22px; }
+.step::before { counter-increment: s; content: "0" counter(s); font-size: 13px; font-weight: 600; color: var(--accent); }
+.step h4 { margin: 10px 0 6px; font-size: 17px; letter-spacing: -.2px; }
+.step p { margin: 0; color: var(--muted); font-size: 15px; }
+@media (max-width: 760px) { .steps { grid-template-columns: 1fr; } }
+
+.split { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; align-items: center; }
+@media (max-width: 860px) { .split { grid-template-columns: 1fr; gap: 32px; } }
+.checks { list-style: none; padding: 0; margin: 26px 0 0; display: grid; gap: 12px; }
+.checks li { display: flex; gap: 12px; color: var(--muted); font-size: 15px; }
+.checks li b { color: var(--text); font-weight: 600; }
+.checks svg { flex: none; width: 18px; height: 18px; color: var(--accent); margin-top: 3px; }
+.latency { border: 1px solid var(--line); border-radius: 16px; background: var(--panel); padding: 28px; box-shadow: var(--shadow); }
+.latency .row { display: grid; grid-template-columns: 110px 1fr 70px; gap: 14px; align-items: center; font-size: 13.5px; padding: 9px 0; }
+.latency .row + .row { border-top: 1px solid var(--line); }
+.latency .track { height: 8px; border-radius: 8px; background: var(--soft); overflow: hidden; }
+.latency .fill { height: 100%; border-radius: 8px; background: var(--faint); width: 0; transition: width 1.1s cubic-bezier(.2,.8,.2,1); }
+.latency .row.us .fill { background: var(--accent); }
+.latency .v { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+.latency .row.us .v, .latency .row.us .n { color: var(--text); font-weight: 600; }
+.latency .note { font-size: 12px; color: var(--faint); margin-top: 14px; }
+
+.faq { margin-top: 36px; border-top: 1px solid var(--line); }
+details { border-bottom: 1px solid var(--line); }
+summary { cursor: pointer; list-style: none; padding: 20px 0; font-weight: 600; font-size: 16px; display: flex; justify-content: space-between; gap: 16px; }
+summary::-webkit-details-marker { display: none; }
+summary::after { content: "+"; color: var(--faint); font-weight: 400; font-size: 22px; line-height: 1; transition: transform .2s; }
+details[open] summary::after { transform: rotate(45deg); }
+details p { margin: -6px 0 22px; color: var(--muted); max-width: 720px; }
+details code { font-size: 13.5px; background: var(--soft); padding: 2px 6px; border-radius: 5px; }
+
+/* pricing */
+.plans { display: grid; grid-template-columns: 1.15fr 1fr; gap: 20px; margin-top: 44px; align-items: stretch; }
+@media (max-width: 820px) { .plans { grid-template-columns: 1fr; } }
+.plan { border: 1px solid var(--line); border-radius: 18px; background: var(--panel); padding: 30px; }
+.plan.main { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft), var(--shadow); }
+.plan .tier { font-weight: 600; display: flex; align-items: center; gap: 10px; }
+.plan .tier .tag { font-size: 11.5px; font-weight: 600; color: var(--accent); background: var(--accent-soft); border-radius: 99px; padding: 2px 9px; }
+.plan .price { font-size: 46px; font-weight: 700; letter-spacing: -1.5px; margin: 14px 0 2px; }
+.plan .price small { font-size: 15px; color: var(--muted); font-weight: 500; letter-spacing: 0; }
+.plan .desc { color: var(--muted); font-size: 14.5px; margin: 0 0 22px; }
+.plan .checks { margin: 0 0 26px; grid-template-columns: 1fr 1fr; gap: 10px 16px; }
+@media (max-width: 520px) { .plan .checks { grid-template-columns: 1fr; } }
+.plan .checks li { font-size: 14px; }
+.plan .btn { width: 100%; justify-content: center; }
+
+/* open source */
+.oss { border: 1px solid var(--line); border-radius: 18px; background: var(--panel); padding: 30px; display: flex; flex-direction: column; }
+.oss .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 18px 0 24px; }
+.oss .stat { background: var(--soft); border-radius: 12px; padding: 14px; }
+.oss .stat b { display: block; font-size: 22px; letter-spacing: -.5px; font-variant-numeric: tabular-nums; }
+.oss .stat span { font-size: 12.5px; color: var(--muted); }
+.oss p { color: var(--muted); font-size: 14.5px; margin: 0; }
+.oss .grow { flex: 1; }
+
+/* changelog */
+.log { margin-top: 40px; border-left: 1px solid var(--line-2); padding-left: 28px; display: grid; gap: 34px; }
+.entry { position: relative; }
+.entry::before { content: ""; position: absolute; left: -33px; top: 7px; width: 9px; height: 9px; border-radius: 50%; background: var(--panel); border: 2px solid var(--accent); }
+.entry .when { font-size: 13px; color: var(--faint); }
+.entry h4 { margin: 2px 0 8px; font-size: 18px; letter-spacing: -.3px; display: flex; gap: 10px; align-items: center; }
+.entry h4 .latest { font-size: 11px; font-weight: 600; color: var(--accent); background: var(--accent-soft); border-radius: 99px; padding: 2px 8px; }
+.entry ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 14.5px; }
+.entry li { margin: 3px 0; }
+.entry a.more { display: inline-block; margin-top: 8px; font-size: 13.5px; color: var(--accent); font-weight: 500; }
+
+.final { text-align: center; padding: 120px 0 110px; }
+.final h2 { margin-bottom: 26px; }
+footer { border-top: 1px solid var(--line); padding: 28px 0 40px; font-size: 13.5px; color: var(--faint); }
+footer .wrap { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+footer .right { margin-left: auto; display: flex; gap: 20px; }
+footer a:hover { color: var(--text); }
+.theme-btn { background: none; border: 0; color: var(--faint); cursor: pointer; padding: 0; font: inherit; }
+.theme-btn:hover { color: var(--text); }
+
+.reveal { opacity: 0; transform: translateY(14px); transition: opacity .6s ease, transform .6s ease; }
+.reveal.in { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) { .reveal { opacity: 1; transform: none; transition: none; } html { scroll-behavior: auto; } }
+@media (max-width: 640px) {
+  .hero { padding-top: 56px; }
+  .screens { gap: 12px; }
+  .device .name { font-size: 11px; }
+  .mock .body { padding: 20px 18px 22px; }
+  .mock .tile { width: 92px; height: 62px; font-size: 11px; }
+  .mock .map { gap: 6px; padding: 16px 10px; }
+  section { padding-top: 84px; }
+}
+</style>
+</head>
+<body>
+
+<nav id="nav">
+  <div class="wrap">
+    <a class="logo" href="#"><img src="icon.png" alt="">glide</a>
+    <div class="links">
+      <a class="hide-sm" href="#features">Features</a>
+      <a class="hide-sm" href="#how">How it works</a>
+      <a class="hide-sm" href="#pricing">Pricing</a>
+      <a class="hide-sm" href="#changelog">Changelog</a>
+      <a class="gh" href="https://github.com/d3osaju/glide" rel="noopener"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <a class="eyebrow" href="https://github.com/d3osaju/glide/releases/latest"><span class="pill" id="verPill">New</span><span id="verText">Free and open source</span></a>
+    <h1>One keyboard.<br>One mouse. <span class="dim">Every screen.</span></h1>
+    <p class="lede">glide lets you control all your PCs from the one you sit at. Move the cursor off the edge of your screen and keep working on the next one, with your clipboard and sound along for the ride.</p>
+    <div class="cta">
+      <a class="btn primary" id="dl" href="https://github.com/d3osaju/glide/releases/latest/download/glide-windows-x64.zip">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 5.5 10.5 4.4v7.1H3zM11.5 4.3 21 3v8.5h-9.5zM3 12.5h7.5v7.1L3 18.5zM11.5 12.5H21V21l-9.5-1.3z"/></svg>
+        Download for Windows
+      </a>
+      <a class="btn" href="https://github.com/d3osaju/glide" rel="noopener">View source</a>
+    </div>
+    <div class="meta" id="dlMeta">Windows 10 and 11 · free · updates itself</div>
+
+    <div class="stage" aria-hidden="true">
+      <div class="screens" id="screens">
+        <div class="device laptop" data-i="0"><div class="display"><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="win"></div></div><div class="base"></div><div class="name">laptop</div></div>
+        <div class="device" data-i="1"><div class="display"><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="win"></div></div><div class="stand"></div><div class="foot"></div><div class="name">desktop · host</div></div>
+        <div class="device" data-i="2"><div class="display"><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="win"></div></div><div class="stand"></div><div class="foot"></div><div class="name">workstation</div></div>
+      </div>
+      <div class="trail" id="trail"></div>
+      <svg class="cursor" id="cursor" viewBox="0 0 24 24" fill="currentColor"><path d="M4 2.5 20 11l-7 1.6-3.4 7.2z" stroke="var(--panel)" stroke-width="1.4" stroke-linejoin="round"/></svg>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="mock reveal" aria-label="The glide app">
+    <div class="tb"><b>glide</b><span class="st"><span class="dot"></span>Hosting · 2 connected</span><span class="wc">—&nbsp;&nbsp;✕</span></div>
+    <div class="body">
+      <h3>Hosting</h3>
+      <p class="sub">on desktop</p>
+      <div class="lbl">Connection code <span class="mono" style="font-weight:400;color:var(--faint)">key 4F-A1-9C</span></div>
+      <div class="code"><span class="mono">glide-wKgBV2Dg8x3p…</span><em>Copy</em></div>
+      <div class="map">
+        <div class="tile">laptop<small>1920×1080</small></div>
+        <div class="tile act">desktop<small>this PC</small></div>
+        <div class="tile">workstation<small>2560×1440</small></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<section id="features">
+  <div class="wrap">
+    <div class="reveal">
+      <div class="kicker">Features</div>
+      <h2>Everything follows your cursor.</h2>
+      <p class="section-lede">Keyboard, mouse, clipboard and sound move together, so several PCs feel like one big desk.</p>
+    </div>
+    <div class="features reveal">
+      <div class="feature">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9z"/></svg></div>
+        <h4>Instant</h4>
+        <p>Mouse moves go straight from the input hook onto the network, with no queues in the way.</p>
+        <div class="num">~14 µs per move, measured on loopback</div>
+      </div>
+      <div class="feature">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></div>
+        <h4>Smooth under load</h4>
+        <p>Priority-tagged traffic, a Wi-Fi keepalive and duplicated keystrokes keep it responsive while torrents and downloads run.</p>
+      </div>
+      <div class="feature">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg></div>
+        <h4>Shared clipboard</h4>
+        <p>Copy on one PC, paste on another. Text travels with the cursor automatically.</p>
+      </div>
+      <div class="feature">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg></div>
+        <h4>Audio both ways</h4>
+        <p>Hear any PC on your headphones, and send your microphone to another PC, with the sending PC muted.</p>
+      </div>
+      <div class="feature">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
+        <h4>Encrypted</h4>
+        <p>Every keystroke is sealed with ChaCha20-Poly1305, with fresh keys for each session.</p>
+      </div>
+      <div class="feature">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg></div>
+        <h4>Updates itself</h4>
+        <p>New versions install quietly when you're not mid-task. Each one is signature-checked first.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="how">
+  <div class="wrap">
+    <div class="reveal">
+      <div class="kicker">How it works</div>
+      <h2>Set up in under a minute.</h2>
+    </div>
+    <div class="steps reveal">
+      <div class="step"><h4>Host on your main PC</h4><p>Install glide on the PC with the keyboard and mouse, and choose <b>Host</b>. It shows a connection code.</p></div>
+      <div class="step"><h4>Connect the others</h4><p>On each other PC, choose <b>Connect</b>. Nearby hosts appear automatically: paste the code once.</p></div>
+      <div class="step"><h4>Arrange and glide</h4><p>Place each screen left, right, above or below, then move the cursor across. <span class="mono" style="font-size:13px">Ctrl+Alt+Esc</span> brings it home.</p></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap split">
+    <div class="reveal">
+      <div class="kicker">Built for speed</div>
+      <h2>No lag. Even with a torrent running.</h2>
+      <ul class="checks">
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Native Rust</b>, with no runtime or background bloat.</span></li>
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>UDP fast path</b> for movement. Keys are sent twice plus a reliable backup, so a dropped packet never stalls you.</span></li>
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Priority packets</b> that routers and Wi-Fi send first, ahead of bulk downloads.</span></li>
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Lives in the tray</b> and starts with Windows if you like.</span></li>
+      </ul>
+    </div>
+    <div class="latency reveal" id="latency">
+      <div class="row us"><span class="n">glide</span><div class="track"><div class="fill" data-w="2"></div></div><span class="v">0.014 ms</span></div>
+      <div class="row"><span class="n">Wi-Fi hop</span><div class="track"><div class="fill" data-w="28"></div></div><span class="v">~2 ms</span></div>
+      <div class="row"><span class="n">60 Hz frame</span><div class="track"><div class="fill" data-w="100"></div></div><span class="v">16.7 ms</span></div>
+      <div class="note">glide's own processing time per encrypted mouse move (loopback median), next to typical network and display times for scale.</div>
+    </div>
+  </div>
+</section>
+
+<section id="pricing">
+  <div class="wrap">
+    <div class="reveal">
+      <div class="kicker">Pricing</div>
+      <h2>Free. Every feature. Forever.</h2>
+      <p class="section-lede">No accounts, no seats, no trial timer. glide is open source, so the whole product is yours.</p>
+    </div>
+    <div class="plans reveal">
+      <div class="plan main">
+        <div class="tier">Community <span class="tag">Open source</span></div>
+        <div class="price">$0 <small>/ forever</small></div>
+        <p class="desc">Unlimited PCs, unlimited use. MIT licensed.</p>
+        <ul class="checks">
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg><span>Unlimited devices</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg><span>Keyboard and mouse sharing</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg><span>Clipboard sync</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg><span>Two-way audio</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg><span>End-to-end encryption</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg><span>Signed auto-updates</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg><span>No account or cloud</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg><span>No telemetry</span></li>
+        </ul>
+        <a class="btn primary" href="https://github.com/d3osaju/glide/releases/latest/download/glide-windows-x64.zip">Download for Windows</a>
+      </div>
+      <div class="oss">
+        <div class="tier" style="font-weight:600">Built in the open</div>
+        <div class="stats">
+          <div class="stat"><b id="stStars">·</b><span>GitHub stars</span></div>
+          <div class="stat"><b id="stReleases">·</b><span>Releases</span></div>
+          <div class="stat"><b>MIT</b><span>License</span></div>
+        </div>
+        <p class="grow">Read every line, build it yourself, file an issue or send a pull request. Your keystrokes never touch anyone's server.</p>
+        <div style="display:flex;gap:10px;margin-top:22px;flex-wrap:wrap">
+          <a class="btn" style="flex:1;justify-content:center" href="https://github.com/d3osaju/glide" rel="noopener">★ Star on GitHub</a>
+          <a class="btn" style="flex:1;justify-content:center" href="https://github.com/d3osaju/glide/issues/new" rel="noopener">Request a feature</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="changelog">
+  <div class="wrap">
+    <div class="reveal">
+      <div class="kicker">Changelog</div>
+      <h2>Always improving.</h2>
+      <p class="section-lede">Updates install automatically. Here's what shipped recently.</p>
+    </div>
+    <div class="log reveal" id="log">
+      <div class="entry"><div class="when">November 2026</div><h4>v0.3.0 <span class="latest">Latest</span></h4><ul><li>glide now updates itself, with signature-checked releases</li><li>Received audio follows your headphones; the sending PC goes quiet</li><li>Audio both ways at once</li></ul></div>
+      <div class="entry"><div class="when">November 2026</div><h4>v0.2.0</h4><ul><li>First public release: host and connect app, tray, clipboard, audio</li></ul></div>
+    </div>
+  </div>
+</section>
+
+<section id="faq">
+  <div class="wrap">
+    <div class="reveal">
+      <div class="kicker">FAQ</div>
+      <h2>Questions</h2>
+    </div>
+    <div class="faq reveal">
+      <details><summary>Is it really free?</summary><p>Yes. glide is open source under the MIT license, with no accounts, no telemetry and no subscription.</p></details>
+      <details><summary>Does it work over the internet?</summary><p>glide is built for PCs on the same local network (home or office Wi-Fi or Ethernet). For other locations, put both PCs on the same VPN.</p></details>
+      <details><summary>What about Mac and Linux?</summary><p>Windows 10 and 11 are supported today. A macOS version is in the source as a preview: build it on a Mac with <code>cargo build --release</code>. Linux isn't supported yet.</p></details>
+      <details><summary>Is my typing safe on the network?</summary><p>Everything is encrypted and authenticated with ChaCha20-Poly1305, using keys derived from a secret only your devices know. The connection code contains that secret, so share it only with your own PCs. If a code leaks, press <b>New code</b>.</p></details>
+      <details><summary>Windows says the app is unrecognised</summary><p>glide isn't code-signed yet, so SmartScreen may warn on first run. Choose <b>More info → Run anyway</b>. Updates themselves are verified with glide's own release signature before installing.</p></details>
+      <details><summary>Can I hear another PC through my headphones?</summary><p>Yes. On the host, turn on <b>Hear the remote here</b>, and on the other PC turn on <b>Send to the host</b> with <b>This PC's sound</b>. That PC goes quiet while its sound plays on your headphones.</p></details>
+    </div>
+  </div>
+</section>
+
+<div class="final">
+  <div class="wrap reveal">
+    <h2>One desk. All your PCs.</h2>
+    <div class="cta" style="margin-top:0">
+      <a class="btn primary" href="https://github.com/d3osaju/glide/releases/latest/download/glide-windows-x64.zip">Download for Windows</a>
+    </div>
+    <div class="meta">Unzip, then run <b>Install glide.cmd</b></div>
+  </div>
+</div>
+
+<footer>
+  <div class="wrap">
+    <span>glide · MIT license</span>
+    <div class="right">
+      <a href="https://github.com/d3osaju/glide/releases" rel="noopener">Releases</a>
+      <a href="https://github.com/d3osaju/glide" rel="noopener">GitHub</a>
+      <button class="theme-btn" id="themeBtn">Theme</button>
+    </div>
+  </div>
+</footer>
+
+<script>
+// Sticky nav border
+const nav = document.getElementById('nav');
+addEventListener('scroll', () => nav.classList.toggle('scrolled', scrollY > 8), { passive: true });
+
+// Theme toggle (remembered per browser)
+const root = document.documentElement;
+try { const t = localStorage.getItem('theme'); if (t) root.dataset.theme = t; } catch {}
+document.getElementById('themeBtn').onclick = () => {
+  const dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+  root.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('theme', root.dataset.theme); } catch {}
+};
+
+// Reveal on scroll
+const io = new IntersectionObserver(es => es.forEach(e => {
+  if (!e.isIntersecting) return;
+  e.target.classList.add('in');
+  e.target.querySelectorAll('.fill').forEach(f => f.style.width = f.dataset.w + '%');
+  io.unobserve(e.target);
+}), { threshold: .15 });
+document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+
+// Cursor gliding across the three screens
+(() => {
+  const stage = document.querySelector('.stage');
+  const cur = document.getElementById('cursor');
+  const trail = document.getElementById('trail');
+  const devs = [...document.querySelectorAll('.device')];
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) { devs[1].classList.add('on'); cur.style.left = '50%'; return; }
+  const disp = devs.map(d => d.querySelector('.display'));
+  // Path: host -> right screen -> back through host -> left screen -> host
+  const path = [[1, .35], [1, .9], [2, .3], [2, .6], [1, .7], [1, .2], [0, .7], [0, .4], [1, .45]];
+  let i = 0, t = 0, from = null, to = null;
+  const pos = ([d, f]) => {
+    const r = disp[d].getBoundingClientRect(), s = stage.getBoundingClientRect();
+    return { x: r.left - s.left + r.width * f, y: r.top - s.top + r.height * .42, d };
+  };
+  function step() {
+    from = pos(path[i % path.length]); to = pos(path[(i + 1) % path.length]); t = 0; i++;
+  }
+  step();
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(50, now - last); last = now;
+    t += dt / 900;
+    if (t >= 1.35) step();
+    const k = Math.min(1, t), e = k < .5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+    const x = from.x + (to.x - from.x) * e, y = from.y + (to.y - from.y) * e;
+    cur.style.transform = `translate(${x}px, ${y}px)`;
+    // which screen is the cursor over?
+    const sRect = stage.getBoundingClientRect();
+    const on = disp.findIndex(d => { const r = d.getBoundingClientRect(); return x + sRect.left >= r.left - 14 && x + sRect.left <= r.right + 14; });
+    devs.forEach((d, j) => d.classList.toggle('on', j === on));
+    const crossing = from.d !== to.d && k > 0 && k < 1;
+    trail.style.opacity = crossing ? .7 : 0;
+    if (crossing) {
+      trail.style.left = Math.min(from.x, x) + 'px';
+      trail.style.width = Math.abs(x - from.x) + 'px';
+      trail.style.top = (y + 2) + 'px';
+      trail.style.background = `linear-gradient(${x > from.x ? 90 : 270}deg, transparent, var(--accent))`;
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+
+// Repo stats + changelog from GitHub (static fallback stays if offline / rate-limited)
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+fetch('https://api.github.com/repos/d3osaju/glide').then(r => r.ok ? r.json() : null).then(r => {
+  if (r) document.getElementById('stStars').textContent = r.stargazers_count.toLocaleString();
+}).catch(() => {});
+fetch('https://api.github.com/repos/d3osaju/glide/releases?per_page=5').then(r => r.ok ? r.json() : null).then(list => {
+  if (!list || !list.length) return;
+  document.getElementById('stReleases').textContent = list.length >= 5 ? '5+' : list.length;
+  const bullets = body => (body || '').split('\n')
+    .filter(l => /^\s*[-*] /.test(l)).slice(0, 4)
+    .map(l => '<li>' + esc(l.replace(/^\s*[-*] /, '').replace(/\*\*(.+?)\*\*/g, '$1').replace(/`/g, '')) + '</li>').join('');
+  document.getElementById('log').innerHTML = list.slice(0, 4).map((r, i) => `
+    <div class="entry">
+      <div class="when">${new Date(r.published_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}</div>
+      <h4>${esc(r.tag_name)} ${i === 0 ? '<span class="latest">Latest</span>' : ''}</h4>
+      <ul>${bullets(r.body) || '<li>' + esc(r.name || 'Release') + '</li>'}</ul>
+      <a class="more" href="${esc(r.html_url)}" rel="noopener">Release notes →</a>
+    </div>`).join('');
+}).catch(() => {});
+
+// Latest release info
+fetch('https://api.github.com/repos/d3osaju/glide/releases/latest')
+  .then(r => r.ok ? r.json() : null)
+  .then(r => {
+    if (!r) return;
+    document.getElementById('verPill').textContent = r.tag_name;
+    document.getElementById('verText').textContent = 'Latest release';
+    const zip = (r.assets || []).find(a => a.name === 'glide-windows-x64.zip');
+    if (zip) document.getElementById('dlMeta').textContent = `${r.tag_name} · ${(zip.size / 1048576).toFixed(1)} MB · Windows 10 and 11 · updates itself`;
+  })
+  .catch(() => {});
+</script>
+</body>
+</html>

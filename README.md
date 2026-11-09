@@ -1,5 +1,7 @@
 # glide
 
+**Website:** https://d3osaju.github.io/glide · **Download:** [latest release](https://github.com/d3osaju/glide/releases/latest)
+
 Share one keyboard and mouse across several PCs and Macs on your network.
 Push the cursor off a screen edge and it continues on the next device. glide
 also syncs the clipboard and can stream sound or a microphone between devices.
@@ -136,11 +138,13 @@ glide audio-devices | audio-send | audio-recv
 ## Publishing an update (maintainer)
 
 ```powershell
-.elease.ps1 -Version 0.3.1 -Notes "What changed"
+.
+elease.ps1 -Version 0.3.1 -Notes "What changed"
 ```
 
 This bumps the version, checks the UI script, runs the tests, builds, signs
-`glide.exe` with the private key at `%USERPROFILE%\.glideelease-signing.key`,
+`glide.exe` with the private key at `%USERPROFILE%\.glide
+elease-signing.key`,
 then tags, pushes and publishes the GitHub release. Installed copies pick it up
 automatically. Keep the key backed up and private: without it you can't
 publish updates, and anyone who has it can.
