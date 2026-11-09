@@ -1,0 +1,31 @@
+# glide server config — lives on the PC whose keyboard and mouse you share.
+# Copy to glide.toml next to glide.exe (installer puts it in C:\ProgramData\Glide).
+
+# This machine's screen name.
+name = "desktop"
+
+# Address clients connect to (TCP; mouse moves use UDP alongside it).
+listen = "0.0.0.0:24800"
+
+# Shared key from `glide genkey`. The same key goes on every client.
+# Leave it out to use the GLIDE_KEY environment variable or --key instead.
+key = "PASTE_OUTPUT_OF_glide_genkey_HERE"
+
+# Sync text clipboard when the cursor moves between machines.
+clipboard = true
+
+# Don't switch screens while a mouse button is held (avoids stuck drags).
+block_switch_while_dragging = true
+
+# Layout: which screen sits on which side. Links are mirrored automatically,
+# so `desktop.right = "laptop"` also means `laptop.left = "desktop"`.
+# Client names must match the --name each client runs with.
+[screens.desktop]
+right = "laptop"
+
+[screens.laptop]
+right = "macbook"
+
+[screens.macbook]
+# Pointer speed multiplier while on this screen (Retina Macs often feel best ~0.6).
+speed = 0.6
