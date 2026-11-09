@@ -532,7 +532,11 @@ fn get_state(app: AppHandle, st: State<'_, Arc<App>>) -> View {
         mode,
         host,
         client,
-        found: st.disco.list(),
+        found: {
+            // Never list this PC itself (its own beacon lingers a few seconds after hosting stops).
+            let mine: Vec<String> = pair::local_ips().into_iter().map(|l| l.ip).collect();
+            st.disco.list().into_iter().filter(|f| !mine.iter().any(|ip| f.addr.starts_with(&format!("{ip}:")))).collect()
+        },
         last_code: s.last_code.clone(),
         last_fp,
         autostart: app.autolaunch().is_enabled().unwrap_or(false),
