@@ -16,7 +16,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, Sample, SampleFormat};
 use std::collections::VecDeque;
 use std::net::UdpSocket;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 const MAGIC: &[u8; 4] = b"GLA1";
@@ -29,6 +29,9 @@ pub struct Devices {
     pub outputs: Vec<String>,
     pub default_input: Option<String>,
     pub default_output: Option<String>,
+    /// A virtual-cable playback device (VB-Cable, BlackHole…) if one is installed:
+    /// audio played into it shows up as a microphone for other apps.
+    pub virtual_cable: Option<String>,
 }
 
 pub fn devices() -> Devices {
@@ -36,12 +39,26 @@ pub fn devices() -> Devices {
     fn names<I: Iterator<Item = cpal::Device>>(it: Result<I, cpal::DevicesError>) -> Vec<String> {
         it.map(|d| d.filter_map(|d| d.name().ok()).collect()).unwrap_or_default()
     }
+    let outputs = names(host.output_devices());
+    let virtual_cable = outputs
+        .iter()
+        .find(|n| {
+            let l = n.to_lowercase();
+            l.contains("cable input") || l.contains("vb-audio") || l.contains("blackhole") || l.contains("voicemeeter input")
+        })
+        .cloned();
     Devices {
         inputs: names(host.input_devices()),
-        outputs: names(host.output_devices()),
+        outputs,
         default_input: host.default_input_device().and_then(|d| d.name().ok()),
         default_output: host.default_output_device().and_then(|d| d.name().ok()),
+        virtual_cable,
     }
+}
+
+/// Current system default playback device (changes when headphones are plugged in).
+pub fn default_output_name() -> Option<String> {
+    cpal::default_host().default_output_device().and_then(|d| d.name().ok())
 }
 
 pub fn list_devices() -> Result<(), String> {
@@ -63,9 +80,15 @@ pub struct Running {
     stop: Arc<AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
     pub label: String,
+    level: Arc<AtomicU32>,
 }
 
 impl Running {
+    /// Signal level of the last 100 ms, 0..=1000.
+    pub fn level(&self) -> u32 {
+        self.level.load(Ordering::Relaxed)
+    }
+
     pub fn stop(mut self) {
         self.stop.store(true, Ordering::Relaxed);
         if let Some(t) = self.thread.take() {
@@ -76,9 +99,11 @@ impl Running {
 
 fn spawn<F>(name: &str, f: F) -> Result<Running, String>
 where
-    F: FnOnce(&AtomicBool, &dyn Fn(Result<String, String>)) + Send + 'static,
+    F: FnOnce(&AtomicBool, &Arc<AtomicU32>, &dyn Fn(Result<String, String>)) + Send + 'static,
 {
     let stop = Arc::new(AtomicBool::new(false));
+    let level = Arc::new(AtomicU32::new(0));
+    let lv = level.clone();
     let (tx, rx) = std::sync::mpsc::channel();
     let st = stop.clone();
     let thread = std::thread::Builder::new()
@@ -87,11 +112,11 @@ where
             let report = move |r| {
                 let _ = tx.send(r);
             };
-            f(&st, &report)
+            f(&st, &lv, &report)
         })
         .map_err(|e| e.to_string())?;
     match rx.recv_timeout(std::time::Duration::from_secs(10)) {
-        Ok(Ok(label)) => Ok(Running { stop, thread: Some(thread), label }),
+        Ok(Ok(label)) => Ok(Running { stop, thread: Some(thread), label, level }),
         Ok(Err(e)) => {
             let _ = thread.join();
             Err(e)
@@ -107,7 +132,8 @@ fn find(devs: impl Iterator<Item = cpal::Device>, needle: &str) -> Option<cpal::
 
 /// Resolve `source` to (device, config). "loopback" = what this PC is playing,
 /// "mic" = default input, anything else = device name substring.
-fn capture_device(source: &str) -> Result<(cpal::Device, cpal::SupportedStreamConfig, String), String> {
+/// Returns (device, config, label, Some(playback device name) when it's a loopback capture).
+fn capture_device(source: &str) -> Result<(cpal::Device, cpal::SupportedStreamConfig, String, Option<String>), String> {
     let host = cpal::default_host();
     let (dev, loopback) = match source {
         "loopback" | "system" => (host.default_output_device().ok_or("no default output device")?, true),
@@ -129,8 +155,9 @@ fn capture_device(source: &str) -> Result<(cpal::Device, cpal::SupportedStreamCo
     }
     let cfg = if loopback { dev.default_output_config() } else { dev.default_input_config() }
         .map_err(|e| format!("device config: {e}"))?;
-    let label = format!("{}{}", dev.name().unwrap_or_default(), if loopback { " (loopback)" } else { "" });
-    Ok((dev, cfg, label))
+    let name = dev.name().unwrap_or_default();
+    let label = format!("{}{}", name, if loopback { " (loopback)" } else { "" });
+    Ok((dev, cfg, label, loopback.then_some(name)))
 }
 
 struct Packetizer {
@@ -143,6 +170,9 @@ struct Packetizer {
     frames_per_packet: usize,
     acc: Vec<i16>,
     plain: Vec<u8>,
+    level: Arc<AtomicU32>,
+    peak: f32,
+    peak_frames: usize,
 }
 
 impl Packetizer {
@@ -153,7 +183,15 @@ impl Packetizer {
         for frame in data.chunks_exact(self.in_ch) {
             for c in 0..self.out_ch {
                 let v: f32 = f32::from_sample(frame[c.min(self.in_ch - 1)]);
+                self.peak = self.peak.max(v.abs());
                 self.acc.push((v.clamp(-1.0, 1.0) * i16::MAX as f32) as i16);
+            }
+            self.peak_frames += 1;
+            if self.peak_frames >= self.rate as usize / 10 {
+                // Publish the peak of the last 100 ms (0..=1000) for the UI meter.
+                self.level.store((self.peak.min(1.0) * 1000.0) as u32, Ordering::Relaxed);
+                self.peak = 0.0;
+                self.peak_frames = 0;
             }
             if self.acc.len() >= self.frames_per_packet * self.out_ch {
                 self.flush();
@@ -177,24 +215,39 @@ impl Packetizer {
     }
 }
 
-pub fn send(to: &str, source: &str, psk: Key) -> Result<(), String> {
-    let r = start_send(to, source, psk)?;
+pub fn send(to: &str, source: &str, mute_local: bool, psk: Key) -> Result<(), String> {
+    let r = start_send(to, source, mute_local, psk)?;
+    std::thread::spawn({
+        let lv = r.level.clone();
+        move || loop {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            log::debug!("send level {}", lv.load(Ordering::Relaxed));
+        }
+    });
     log::info!("{}; Ctrl+C to stop", r.label);
     loop {
         std::thread::park();
     }
 }
 
-pub fn start_send(to: &str, source: &str, psk: Key) -> Result<Running, String> {
+pub fn start_send(to: &str, source: &str, mute_local: bool, psk: Key) -> Result<Running, String> {
     let (to, source) = (to.to_string(), source.to_string());
-    spawn("audio-send", move |stop, report| match send_inner(&to, &source, psk, stop, report) {
+    spawn("audio-send", move |stop, level, report| match send_inner(&to, &source, mute_local, psk, stop, level, report) {
         Ok(()) => {}
         Err(e) => report(Err(e)),
     })
 }
 
-fn send_inner(to: &str, source: &str, psk: Key, stop: &AtomicBool, report: &dyn Fn(Result<String, String>)) -> Result<(), String> {
-    let (dev, cfg, label) = capture_device(source)?;
+fn send_inner(
+    to: &str,
+    source: &str,
+    mute_local: bool,
+    psk: Key,
+    stop: &AtomicBool,
+    level: &Arc<AtomicU32>,
+    report: &dyn Fn(Result<String, String>),
+) -> Result<(), String> {
+    let (dev, cfg, label, loopback_of) = capture_device(source)?;
     let sock = UdpSocket::bind("0.0.0.0:0").map_err(|e| e.to_string())?;
     crate::net::qos_udp(&sock);
     sock.connect(to).map_err(|e| format!("{to}: {e}"))?;
@@ -212,6 +265,9 @@ fn send_inner(to: &str, source: &str, psk: Key, stop: &AtomicBool, report: &dyn 
         frames_per_packet: (rate / 200) as usize,
         acc: Vec::new(),
         plain: Vec::new(),
+        level: level.clone(),
+        peak: 0.0,
+        peak_frames: 0,
     }));
     let stream_cfg: cpal::StreamConfig = cfg.config();
     let err = |e| log::warn!("audio capture error: {e}");
@@ -238,7 +294,23 @@ fn send_inner(to: &str, source: &str, psk: Key, stop: &AtomicBool, report: &dyn 
         format!("opening {label}: {e}{hint}")
     })?;
     stream.play().map_err(|e| e.to_string())?;
-    report(Ok(format!("streaming {label} ({rate} Hz, {out_ch} ch) -> {to}")));
+    // Silence this device's own speakers while its sound plays elsewhere.
+    // WASAPI loopback captures before the endpoint mute, so the stream keeps flowing.
+    #[cfg(windows)]
+    let _mute = match (&loopback_of, mute_local) {
+        (Some(name), true) => match crate::platform::winaudio::mute(Some(name)) {
+            Ok(g) => Some(g),
+            Err(e) => {
+                log::warn!("could not mute local speakers: {e}");
+                None
+            }
+        },
+        _ => None,
+    };
+    #[cfg(not(windows))]
+    let _ = (&loopback_of, mute_local);
+    let muted = if cfg!(windows) && loopback_of.is_some() && mute_local { ", local speakers muted" } else { "" };
+    report(Ok(format!("streaming {label} ({rate} Hz, {out_ch} ch) -> {to}{muted}")));
     while !stop.load(Ordering::Relaxed) {
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
@@ -316,7 +388,7 @@ pub fn recv(listen: &str, output: Option<&str>, latency_ms: u32, psk: Key) -> Re
 
 pub fn start_recv(listen: &str, output: Option<&str>, latency_ms: u32, psk: Key) -> Result<Running, String> {
     let (listen, output) = (listen.to_string(), output.map(str::to_string));
-    spawn("audio-recv", move |stop, report| {
+    spawn("audio-recv", move |stop, _level, report| {
         if let Err(e) = recv_inner(&listen, output.as_deref(), latency_ms, psk, stop, report) {
             report(Err(e));
         }

@@ -2,7 +2,7 @@
 //! switchable at runtime. The UI (ui/index.html) polls `get_state`.
 
 use crate::config::{Dir, Layout};
-use crate::{audio, client, crypto, flags, pair, server};
+use crate::{audio, client, crypto, flags, pair, server, update};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::PathBuf;
@@ -47,6 +47,8 @@ struct Settings {
     audio_send: bool,
     audio_source: String,
     audio_target: Option<String>,
+    audio_mute_local: bool,
+    auto_update: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
@@ -82,6 +84,8 @@ impl Default for Settings {
             audio_send: false,
             audio_source: if cfg!(windows) { "loopback".into() } else { "mic".into() },
             audio_target: None,
+            audio_mute_local: true,
+            auto_update: true,
         }
     }
 }
@@ -106,6 +110,19 @@ struct Connected {
     server: String,
 }
 
+#[derive(Default, Clone, Serialize)]
+struct UpdState {
+    current: &'static str,
+    checking: bool,
+    checked: bool,
+    available: Option<update::Release>,
+    error: Option<String>,
+    installing: bool,
+    downloaded: u64,
+    #[serde(skip)]
+    last_check: Option<Instant>,
+}
+
 #[derive(Default)]
 struct AudioSlot {
     running: Option<(audio::Running, String)>,
@@ -123,6 +140,9 @@ pub struct App {
     tray_status: Mutex<Option<MenuItem<Wry>>>,
     audio_rx: Mutex<AudioSlot>,
     audio_tx: Mutex<AudioSlot>,
+    upd: Mutex<UpdState>,
+    started: Instant,
+    audio_sync: Mutex<()>,
 }
 
 impl App {
@@ -144,6 +164,9 @@ impl App {
             tray_status: Mutex::new(None),
             audio_rx: Mutex::new(AudioSlot::default()),
             audio_tx: Mutex::new(AudioSlot::default()),
+            upd: Mutex::new(UpdState { current: update::current_version(), ..Default::default() }),
+            started: Instant::now(),
+            audio_sync: Mutex::new(()),
         };
         app.apply_flags();
         app.save();
@@ -254,7 +277,6 @@ impl App {
         *self.host.lock().unwrap() = Some(Hosting { handle, beacon_stop });
         self.settings.lock().unwrap().mode = Some("host".into());
         self.save();
-        self.sync_audio();
         Ok(())
     }
 
@@ -275,7 +297,6 @@ impl App {
             std::thread::Builder::new().name("client".into()).spawn(move || client::run(opts, ctl)).map_err(|e| e.to_string())?;
         }
         *self.client.lock().unwrap() = Some(Connected { ctl, server: addr.to_string() });
-        self.sync_audio();
         Ok(())
     }
 
@@ -287,7 +308,28 @@ impl App {
         if let Some(c) = self.client.lock().unwrap().take() {
             c.ctl.stop();
         }
-        self.sync_audio();
+        self.stop_audio();
+    }
+
+    /// Stopping is quick and must happen before quitting so a muted speaker is restored.
+    fn stop_audio(&self) {
+        for slot in [&self.audio_rx, &self.audio_tx] {
+            let r = {
+                let mut s = slot.lock().unwrap();
+                s.error = None;
+                s.failed = None;
+                s.running.take()
+            };
+            if let Some((r, _)) = r {
+                r.stop();
+            }
+        }
+    }
+
+    /// Apply audio changes soon, off the UI thread (opening a device can take seconds).
+    fn kick_audio(self: &Arc<Self>) {
+        let me = self.clone();
+        std::thread::spawn(move || me.sync_audio());
     }
 
     /// Key and peer for the current session (audio rides on it).
@@ -313,71 +355,194 @@ impl App {
 
     /// Start/stop/restart audio streams so they match the settings and session.
     fn sync_audio(&self) {
+        // One sync at a time; if one is busy opening a device, the next tick catches up.
+        let Ok(_one_at_a_time) = self.audio_sync.try_lock() else { return };
         let s = self.settings.lock().unwrap().clone();
         let session = self.session();
 
+        // "System default" means *the current* default: include its name in the
+        // signature so plugging in headphones restarts the stream on them.
+        let default_out = if (s.audio_recv && s.audio_output.is_none()) || (s.audio_send && s.audio_source == "loopback") {
+            audio::default_output_name()
+        } else {
+            None
+        };
+
         // Receive
         let want_rx = session.filter(|_| s.audio_recv).map(|(key, _)| {
-            (format!("{:?}|{}|{:?}", s.audio_output, s.audio_latency, key), key)
+            let out = s.audio_output.clone().or_else(|| default_out.clone());
+            (format!("{:?}|{}|{:?}", out, s.audio_latency, key), key)
         });
-        Self::reconcile(&self.audio_rx, want_rx, |key| {
-            audio::start_recv(&format!("0.0.0.0:{AUDIO_PORT}"), s.audio_output.as_deref(), s.audio_latency, key)
-        });
+        let rx_out = s.audio_output.clone().or_else(|| default_out.clone());
+        // Echo guard: playing received audio into the very device whose sound we
+        // are capturing would loop it straight back to the other side.
+        let echo = s.audio_recv && s.audio_send && s.audio_source == "loopback" && rx_out.is_some() && rx_out == default_out;
+        let want_rx = if echo {
+            let old = self.audio_rx.lock().unwrap().running.take();
+            if let Some((r, _)) = old {
+                r.stop();
+            }
+            let mut slot = self.audio_rx.lock().unwrap();
+            slot.error = Some(
+                "Not playing: this output is also being sent, which would echo back. Pick another Output, such as a virtual cable (CABLE Input)."
+                    .into(),
+            );
+            None
+        } else {
+            want_rx
+        };
+        if !echo {
+            Self::reconcile(&self.audio_rx, want_rx, |key| {
+                audio::start_recv(&format!("0.0.0.0:{AUDIO_PORT}"), rx_out.as_deref(), s.audio_latency, key)
+            });
+        }
 
         // Send
         let want_tx = match session.filter(|_| s.audio_send) {
-            Some((key, Some(ip))) => Some((format!("{}|{}|{:?}", s.audio_source, ip, key), (key, ip))),
+            Some((key, Some(ip))) => Some((
+                format!("{}|{:?}|{}|{}|{:?}", s.audio_source, default_out, s.audio_mute_local, ip, key),
+                (key, ip),
+            )),
             Some((_, None)) => {
-                let mut slot = self.audio_tx.lock().unwrap();
-                if let Some((r, _)) = slot.running.take() {
+                let old = self.audio_tx.lock().unwrap().running.take();
+                if let Some((r, _)) = old {
                     r.stop();
                 }
-                slot.error = Some("Waiting for a device to connect".into());
+                self.audio_tx.lock().unwrap().error = Some("Waiting for a device to connect".into());
                 return;
             }
             None => None,
         };
         Self::reconcile(&self.audio_tx, want_tx, |(key, ip)| {
-            audio::start_send(&format!("{ip}:{AUDIO_PORT}"), &s.audio_source, key)
+            audio::start_send(&format!("{ip}:{AUDIO_PORT}"), &s.audio_source, s.audio_mute_local, key)
         });
     }
 
     fn reconcile<K>(slot: &Mutex<AudioSlot>, want: Option<(String, K)>, start: impl FnOnce(K) -> Result<audio::Running, String>) {
-        let mut slot = slot.lock().unwrap();
-        let current = slot.running.as_ref().map(|(_, sig)| sig.clone());
-        match want {
-            None => {
-                if let Some((r, _)) = slot.running.take() {
-                    r.stop();
-                }
-                slot.error = None;
-                slot.failed = None;
+        let (current, failed) = {
+            let s = slot.lock().unwrap();
+            (s.running.as_ref().map(|(_, sig)| sig.clone()), s.failed.clone())
+        };
+        let Some((sig, arg)) = want else {
+            let old = {
+                let mut s = slot.lock().unwrap();
+                s.error = None;
+                s.failed = None;
+                s.running.take()
+            };
+            if let Some((r, _)) = old {
+                r.stop();
             }
-            Some((sig, _)) if current.as_deref() == Some(sig.as_str()) => {}
-            Some((sig, arg)) => {
-                if let Some((fsig, at)) = &slot.failed {
-                    if *fsig == sig && at.elapsed() < Duration::from_secs(5) {
-                        return; // don't hammer a device that just failed
-                    }
-                }
-                if let Some((r, _)) = slot.running.take() {
-                    r.stop();
-                }
-                match start(arg) {
-                    Ok(r) => {
-                        log::info!("{}", r.label);
-                        slot.running = Some((r, sig));
-                        slot.error = None;
-                        slot.failed = None;
-                    }
-                    Err(e) => {
-                        log::warn!("audio: {e}");
-                        slot.error = Some(e);
-                        slot.failed = Some((sig, Instant::now()));
-                    }
-                }
+            return;
+        };
+        if current.as_deref() == Some(sig.as_str()) {
+            return;
+        }
+        if let Some((fsig, at)) = &failed {
+            if *fsig == sig && at.elapsed() < Duration::from_secs(5) {
+                return; // don't hammer a device that just failed
             }
         }
+        let old = slot.lock().unwrap().running.take();
+        if let Some((r, _)) = old {
+            r.stop();
+        }
+        // Opening the device can take a while: no lock is held here.
+        let result = start(arg);
+        let mut s = slot.lock().unwrap();
+        match result {
+            Ok(r) => {
+                log::info!("{}", r.label);
+                s.running = Some((r, sig));
+                s.error = None;
+                s.failed = None;
+            }
+            Err(e) => {
+                log::warn!("audio: {e}");
+                s.error = Some(e);
+                s.failed = Some((sig, Instant::now()));
+            }
+        }
+    }
+
+    /// True while the cursor is on another device (never restart then).
+    fn in_use(&self) -> bool {
+        if let Some(h) = self.host.lock().unwrap().as_ref() {
+            if h.handle.reg.active().is_some() {
+                return true;
+            }
+        }
+        if let Some(c) = self.client.lock().unwrap().as_ref() {
+            if c.ctl.active.load(Ordering::Relaxed) {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn check_update_async(self: &Arc<Self>) {
+        {
+            let mut u = self.upd.lock().unwrap();
+            if u.checking || u.installing {
+                return;
+            }
+            u.checking = true;
+            u.error = None;
+        }
+        let me = self.clone();
+        std::thread::spawn(move || {
+            let r = update::check();
+            let mut u = me.upd.lock().unwrap();
+            u.checking = false;
+            u.checked = true;
+            u.last_check = Some(Instant::now());
+            match r {
+                Ok(a) => u.available = a,
+                Err(e) => u.error = Some(e),
+            }
+        });
+    }
+
+    fn install_update_async(self: &Arc<Self>, app: AppHandle) {
+        let rel = {
+            let mut u = self.upd.lock().unwrap();
+            if u.installing {
+                return;
+            }
+            let Some(r) = u.available.clone() else { return };
+            u.installing = true;
+            u.error = None;
+            u.downloaded = 0;
+            r
+        };
+        let me = self.clone();
+        std::thread::spawn(move || {
+            let res = update::install(&rel, &|n| me.upd.lock().unwrap().downloaded = n);
+            match res {
+                Ok(exe) => {
+                    log::info!("updated to {}; restarting", rel.version);
+                    let hidden = app
+                        .get_webview_window("main")
+                        .map(|w| !w.is_visible().unwrap_or(true))
+                        .unwrap_or(true);
+                    me.stop_all(); // session mode is kept, so it resumes after restart
+                    match update::relaunch(&exe, hidden) {
+                        Ok(()) => app.exit(0),
+                        Err(e) => {
+                            let mut u = me.upd.lock().unwrap();
+                            u.installing = false;
+                            u.error = Some(format!("updated, but couldn't restart: {e}. Please reopen glide."));
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::warn!("update failed: {e}");
+                    let mut u = me.upd.lock().unwrap();
+                    u.installing = false;
+                    u.error = Some(e);
+                }
+            }
+        });
     }
 
     fn summary(&self) -> String {
@@ -415,6 +580,7 @@ struct View {
     settings: Settings,
     autostart: bool,
     audio: AudioView,
+    update: UpdState,
     version: &'static str,
 }
 
@@ -426,6 +592,7 @@ struct AudioView {
     tx_on: bool,
     tx_label: Option<String>,
     tx_error: Option<String>,
+    tx_level: u32,
 }
 
 #[derive(Serialize)]
@@ -524,6 +691,7 @@ fn get_state(app: AppHandle, st: State<'_, Arc<App>>) -> View {
             tx_on: tx.running.is_some(),
             tx_label: tx.running.as_ref().map(|r| r.0.label.clone()),
             tx_error: tx.error.clone(),
+            tx_level: tx.running.as_ref().map(|r| r.0.level()).unwrap_or(0),
         }
     };
     let last_fp = s.last_code.as_deref().and_then(|c| pair::decode_code(c).ok()).map(|(_, k)| pair::fingerprint(&k));
@@ -542,18 +710,33 @@ fn get_state(app: AppHandle, st: State<'_, Arc<App>>) -> View {
         autostart: app.autolaunch().is_enabled().unwrap_or(false),
         settings: s,
         audio,
+        update: st.upd.lock().unwrap().clone(),
         version: env!("CARGO_PKG_VERSION"),
     }
 }
 
 #[tauri::command]
+fn check_update(st: State<'_, Arc<App>>) {
+    st.inner().check_update_async();
+}
+
+#[tauri::command]
+fn install_update(app: AppHandle, st: State<'_, Arc<App>>) {
+    st.inner().install_update_async(app);
+}
+
+#[tauri::command]
 fn start_host(st: State<'_, Arc<App>>) -> Result<(), String> {
-    st.start_host()
+    st.start_host()?;
+    st.inner().kick_audio();
+    Ok(())
 }
 
 #[tauri::command]
 fn connect(st: State<'_, Arc<App>>, code: String) -> Result<(), String> {
-    st.connect(&code)
+    st.connect(&code)?;
+    st.inner().kick_audio();
+    Ok(())
 }
 
 #[tauri::command]
@@ -683,6 +866,8 @@ fn set_option(app: AppHandle, st: State<'_, Arc<App>>, key: String, value: Value
             "minimize_to_tray" => s.minimize_to_tray = as_bool()?,
             "audio_recv" => s.audio_recv = as_bool()?,
             "audio_send" => s.audio_send = as_bool()?,
+            "audio_mute_local" => s.audio_mute_local = as_bool()?,
+            "auto_update" => s.auto_update = as_bool()?,
             "audio_output" => s.audio_output = as_str(),
             "audio_source" => s.audio_source = as_str().unwrap_or_else(|| "loopback".into()),
             "audio_target" => s.audio_target = as_str(),
@@ -700,7 +885,7 @@ fn set_option(app: AppHandle, st: State<'_, Arc<App>>, key: String, value: Value
             st.connect(&code)?;
         }
     }
-    st.sync_audio();
+    st.inner().kick_audio();
     Ok(())
 }
 
@@ -750,6 +935,8 @@ pub fn run(launched_by_autostart: bool) {
             new_key,
             set_option,
             audio_devices,
+            check_update,
+            install_update,
             copy_text,
             hide_window,
             quit
@@ -801,14 +988,18 @@ pub fn run(launched_by_autostart: bool) {
                 (s.resume, s.mode.clone(), s.last_code.clone(), s.start_minimized)
             };
             if resume {
-                let r = match (mode.as_deref(), code) {
-                    (Some("host"), _) => state.start_host(),
-                    (Some("client"), Some(c)) => state.connect(&c),
-                    _ => Ok(()),
-                };
-                if let Err(e) = r {
-                    log::warn!("could not resume: {e}");
-                }
+                // In the background so the window appears immediately.
+                let st = state.clone();
+                std::thread::spawn(move || {
+                    let r = match (mode.as_deref(), code) {
+                        (Some("host"), _) => st.start_host(),
+                        (Some("client"), Some(c)) => st.connect(&c),
+                        _ => Ok(()),
+                    };
+                    if let Err(e) = r {
+                        log::warn!("could not resume: {e}");
+                    }
+                });
             }
 
             // Background: place new devices, keep audio and tray text current.
@@ -820,7 +1011,25 @@ pub fn run(launched_by_autostart: bool) {
                     if let Some(d) = devices {
                         state.auto_place(&d);
                     }
-                    state.sync_audio();
+                    state.kick_audio();
+                    // Updates: check shortly after launch, then every 6 h; install when idle.
+                    if state.settings.lock().unwrap().auto_update {
+                        let (due, ready) = {
+                            let u = state.upd.lock().unwrap();
+                            let due = !u.checking
+                                && !u.installing
+                                && match u.last_check {
+                                    None => state.started.elapsed() > Duration::from_secs(15),
+                                    Some(t) => t.elapsed() > Duration::from_secs(6 * 3600),
+                                };
+                            (due, u.available.is_some() && !u.installing && u.error.is_none())
+                        };
+                        if due {
+                            state.check_update_async();
+                        } else if ready && !state.in_use() {
+                            state.install_update_async(handle.clone());
+                        }
+                    }
                     let text = state.summary();
                     if let Some(item) = state.tray_status.lock().unwrap().as_ref() {
                         let _ = item.set_text(&text);

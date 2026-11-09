@@ -14,6 +14,8 @@ Remove-Item (Join-Path $env:ProgramData "Microsoft\Windows\Start Menu\Programs\g
 Remove-Item (Join-Path ([Environment]::GetFolderPath("Desktop")) "glide.lnk") -ErrorAction SilentlyContinue
 Remove-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "glide" -ErrorAction SilentlyContinue
 Remove-Item -Recurse -Force (Join-Path $env:ProgramFiles "glide") -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force (Join-Path $env:LOCALAPPDATA "Programs\glide") -ErrorAction SilentlyContinue
+Remove-Item (Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\glide.lnk") -ErrorAction SilentlyContinue
 if ($Purge) { Remove-Item -Recurse -Force (Join-Path $env:APPDATA "in.zetalabs.glide") -ErrorAction SilentlyContinue }
 # Restore the mouse cursor in case glide was killed while hiding it.
 Add-Type -Namespace W -Name U -MemberDefinition '[DllImport("user32.dll")] public static extern bool SystemParametersInfo(uint a, uint b, System.IntPtr c, uint d);'

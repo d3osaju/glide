@@ -15,6 +15,7 @@ mod pair;
 mod platform;
 mod proto;
 mod server;
+mod update;
 
 #[cfg(test)]
 mod tests;
@@ -69,9 +70,29 @@ enum Cmd {
         /// "loopback" (what this PC is playing, Windows), "mic", or a device-name substring
         #[arg(long, default_value = "loopback")]
         source: String,
+        /// Mute this PC's own speakers while streaming its system sound
+        #[arg(long)]
+        mute_local: bool,
         #[arg(long, env = "GLIDE_KEY", hide_env_values = true)]
         key: String,
     },
+    /// (maintainer) Create the release-signing key.
+    #[command(hide = true)]
+    ReleaseKeygen {
+        #[arg(long)]
+        out: std::path::PathBuf,
+    },
+    /// (maintainer) Sign a release binary, writing <file>.sig.
+    #[command(hide = true)]
+    ReleaseSign {
+        file: std::path::PathBuf,
+        #[arg(long)]
+        key: std::path::PathBuf,
+    },
+    /// Check GitHub for a newer version.
+    CheckUpdate,
+    /// Download, verify and install the newest version over this one.
+    Update,
     /// Play audio streamed from another machine.
     AudioRecv {
         #[arg(long, default_value = "0.0.0.0:24810")]
@@ -89,11 +110,26 @@ enum Cmd {
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let gui = args.is_empty() || args.iter().all(|a| a == "--tray");
+    let gui = args.iter().all(|a| a == "--tray" || a == "--after-update");
     platform::init_process();
+
+    // Never leave the cursor hidden or the speakers muted on exit or crash.
+    let prev = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        platform::restore_cursor();
+        #[cfg(windows)]
+        platform::winaudio::recover();
+        prev(info);
+    }));
+
     if gui {
         env_logger::Builder::new().parse_filters("info").format_target(false).init();
-        gui::run(!args.is_empty());
+        if args.iter().any(|a| a == "--after-update") {
+            // Let the previous version finish exiting before single-instance kicks in.
+            std::thread::sleep(std::time::Duration::from_millis(1500));
+        }
+        update::cleanup();
+        gui::run(args.iter().any(|a| a == "--tray"));
         platform::restore_cursor();
         return;
     }
@@ -106,17 +142,12 @@ fn main() {
         .parse_filters(&cli.log)
         .format_target(false)
         .init();
-
-    // Never leave the cursor hidden on exit or crash.
     let _ = ctrlc::set_handler(|| {
         platform::restore_cursor();
+        #[cfg(windows)]
+        platform::winaudio::recover();
         std::process::exit(0);
     });
-    let prev = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
-        platform::restore_cursor();
-        prev(info);
-    }));
 
     if let Err(e) = run(cli.cmd) {
         platform::restore_cursor();
@@ -145,7 +176,31 @@ fn run(cmd: Cmd) -> Result<(), String> {
             Ok(())
         }
         Cmd::AudioDevices => audio::list_devices(),
-        Cmd::AudioSend { to, source, key } => audio::send(&to, &source, crypto::parse_key(&key)?),
+        Cmd::ReleaseKeygen { out } => update::keygen(&out),
+        Cmd::ReleaseSign { file, key } => update::sign(&file, &key).map(|p| println!("{}", p.display())),
+        Cmd::Update => match update::check()? {
+            Some(r) => {
+                println!("Installing glide {}…", r.version);
+                let exe = update::install(&r, &|_| {})?;
+                println!("Updated {} to {}. Restart glide to use it.", exe.display(), r.version);
+                Ok(())
+            }
+            None => {
+                println!("glide {} is up to date", update::current_version());
+                Ok(())
+            }
+        },
+        Cmd::CheckUpdate => match update::check()? {
+            Some(r) => {
+                println!("glide {} is available (you have {}): {}", r.version, update::current_version(), r.url);
+                Ok(())
+            }
+            None => {
+                println!("glide {} is up to date", update::current_version());
+                Ok(())
+            }
+        },
+        Cmd::AudioSend { to, source, mute_local, key } => audio::send(&to, &source, mute_local, crypto::parse_key(&key)?),
         Cmd::AudioRecv { listen, output, latency_ms, key } => {
             audio::recv(&listen, output.as_deref(), latency_ms.clamp(5, 1000), crypto::parse_key(&key)?)
         }

@@ -7,11 +7,21 @@ It's a small native Rust app (one `glide.exe`) that sits in the tray.
 
 ## Install (each Windows PC)
 
-1. Copy the `dist` folder (or `glide-windows-x64.zip`) to the PC and unzip it.
+1. Download `glide-windows-x64.zip` from the
+   [latest release](https://github.com/d3osaju/glide/releases/latest) and unzip it.
 2. Double-click **`Install glide.cmd`** and accept the admin prompt.
-   This installs glide to `C:\Program Files\glide`, adds Start Menu and
+   This installs glide to `%LOCALAPPDATA%\Programs\glide`, adds Start Menu and
    desktop shortcuts, allows glide through the firewall on Private networks,
    adds the network-priority policy, and opens the app.
+
+**Updates install themselves.** glide checks GitHub at launch and every 6
+hours. It installs a new version only while you aren't using another device,
+then restarts and resumes your session. Each update must carry a valid
+signature from the release key, or glide refuses it. You can also use
+*Settings → Updates → Check now*, or turn automatic updates off.
+
+> Upgrading from v0.2.0? That version had no updater: install v0.3.0 once with
+> the installer, and every later version arrives automatically.
 
 To remove glide, run `uninstall.ps1`. Add `-Purge` to also delete its settings.
 
@@ -54,8 +64,22 @@ that, one click reconnects to that host.
 | | Resume last session on launch | on |
 | | Start minimized | off |
 | | Close to tray / Minimize to tray | on |
-| Audio | Play audio from the other device (output device, buffer slider) | off |
-| | Send this device's audio (system sound, mic or any input; pick the target) | off |
+| Audio | Hear the other device here (output follows your current default, e.g. headphones) | off |
+| | Send to the other device (microphone, this PC's sound, or any input) | off |
+| | Mute this PC while sending its sound | on |
+| Updates | Update automatically | on |
+
+**Audio both ways at once** (a typical setup):
+
+| | Host (the PC you sit at, with headphones) | Remote |
+|---|---|---|
+| Hear | **Hear the remote here**: plays on your headphones | **Hear the host here** → Output: *CABLE Input* (virtual mic) |
+| Send | **Send to the remote**, Source: *Microphone* | **Send to the host**, Source: *This PC's sound* + **Mute this PC while sending** |
+
+The remote's sound plays on your headphones and the remote stays silent. Your
+host microphone shows up on the remote as the *CABLE Output* mic for calls.
+glide refuses to play received audio into the same output it's sending, which
+would echo back, and tells you to pick another output.
 
 **Use a received stream as a microphone:** install the free
 [VB-Audio Virtual Cable](https://vb-audio.com/Cable/), set **Output** to
@@ -108,6 +132,18 @@ glide audio-devices | audio-send | audio-recv
 | UDP, ephemeral | Mouse moves and fast keys |
 | UDP 24801 | Host discovery broadcast |
 | UDP 24810 | Audio |
+
+## Publishing an update (maintainer)
+
+```powershell
+.elease.ps1 -Version 0.3.1 -Notes "What changed"
+```
+
+This bumps the version, checks the UI script, runs the tests, builds, signs
+`glide.exe` with the private key at `%USERPROFILE%\.glideelease-signing.key`,
+then tags, pushes and publishes the GitHub release. Installed copies pick it up
+automatically. Keep the key backed up and private: without it you can't
+publish updates, and anyone who has it can.
 
 ## Build
 

@@ -244,6 +244,7 @@ input[type=range] { accent-color: var(--accent); width: 100%; }
   <span class="wordmark">glide</span>
   <span class="status"><span class="dot" id="statusDot"></span><span id="statusText">Starting…</span></span>
   <div class="drag" data-tauri-drag-region></div>
+  <button class="btn primary" id="btnUpdate" style="display:none;height:26px;font-size:12px;margin-right:6px"></button>
   <button class="tb" id="btnSettings" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg></button>
   <button class="tb" id="btnMin" title="Minimize"><svg viewBox="0 0 16 16"><path d="M3.5 8h9" stroke="currentColor" stroke-width="1.2"/></svg></button>
   <button class="tb x" id="btnClose" title="Close"><svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.2"/></svg></button>
@@ -491,29 +492,43 @@ function audioAside() {
 }
 function audioCard(role) {
   const s = S.settings, a = S.audio, d = audioDevs || { inputs: [], outputs: [] };
-  const outOpts = `<option value="">Default${d.default_output ? ' (' + esc(d.default_output) + ')' : ''}</option>` +
+  const host = role === 'host';
+  const outOpts = `<option value="">Current default${d.default_output ? ' (' + esc(d.default_output) + ')' : ''}</option>` +
     d.outputs.map(n => `<option ${s.audio_output === n ? 'selected' : ''}>${esc(n)}</option>`).join('');
-  const src = [['loopback', 'System sound'], ['mic', 'Default microphone']].concat(d.inputs.map(n => [n, n]));
+  const src = [['mic', 'Microphone' + (d.default_input ? ' (' + d.default_input + ')' : '')], ['loopback', 'This PC\'s sound']]
+    .concat(d.inputs.map(n => [n, n]));
   const srcOpts = src.map(([v, l]) => `<option value="${esc(v)}" ${s.audio_source === v ? 'selected' : ''}>${esc(l)}</option>`).join('');
-  const online = role === 'host' ? S.host.devices.filter(x => x.online) : [];
-  const target = role === 'host'
-    ? `<label>Send to<select data-opt="audio_target"><option value="">First connected device</option>${online.map(x => `<option ${s.audio_target === x.name ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>`
+  const online = host ? S.host.devices.filter(x => x.online) : [];
+  const target = host
+    ? `<label>To<select data-opt="audio_target"><option value="">First connected device</option>${online.map(x => `<option ${s.audio_target === x.name ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>`
     : '';
-  const st = (on, label, err) => on ? `<div class="astat ok">${esc(label)}</div>` : (err ? `<div class="astat bad">${esc(err)}</div>` : '');
+  const meter = a.tx_on ? `<div style="height:4px;border-radius:4px;background:var(--line);overflow:hidden"><div class="txmeter" style="height:100%;width:0;background:var(--accent);transition:width .15s"></div></div>` : '';
+  const st = (on, label, err) => on ? `<div class="astat ok">● ${esc(label)}</div>` : (err ? `<div class="astat bad">${esc(err)}</div>` : '');
+  const cable = d.virtual_cable;
+  const cableHint = cable
+    ? `Tip: set Output to <b>${esc(cable)}</b> to use it as a microphone in your apps.`
+    : `To use it as a <b>microphone</b> in apps on this PC, install the free VB-Audio Virtual Cable, then pick "CABLE Input" as Output.`;
+  const recvTitle = host ? 'Hear the remote here' : 'Hear the host here';
+  const recvDesc = host ? 'Plays what the remote sends (its sound or mic) on this PC: follows your headphones.' : 'Plays the host\'s microphone or sound on this PC.';
+  const sendTitle = host ? 'Send to the remote' : 'Send to the host';
+  const sendDesc = host ? 'Usually your microphone, so the remote can use it.' : 'Usually this PC\'s sound, so you hear it on the host.';
+  const loop = s.audio_source === 'loopback';
   return `
-    ${opt('audio_recv', s.audio_recv, 'Play the other device\'s audio here', 'Its sound or microphone comes out of this PC.')}
+    ${opt('audio_recv', s.audio_recv, recvTitle, recvDesc)}
     <div class="sub ${s.audio_recv ? '' : 'off'}">
       <label>Output<select data-opt="audio_output">${outOpts}</select></label>
       <label>Buffer · ${s.audio_latency} ms<input type="range" min="10" max="200" step="5" value="${s.audio_latency}" data-opt="audio_latency"></label>
       ${st(a.rx_on, a.rx_label, a.rx_error)}
+      ${host ? '' : `<p class="help" style="margin:0">${cableHint}</p>`}
     </div>
-    ${opt('audio_send', s.audio_send, 'Send this device\'s audio', 'Stream system sound or a microphone to the other device.')}
+    ${opt('audio_send', s.audio_send, sendTitle, sendDesc)}
     <div class="sub ${s.audio_send ? '' : 'off'}">
       <label>Source<select data-opt="audio_source">${srcOpts}</select></label>
       ${target}
+      ${loop && navigator.userAgent.includes('Windows') ? `<div class="opt" style="padding:4px 0"><div class="grow"><div class="t" style="font-size:12.5px">Mute this PC while sending</div><div class="d">Sound goes only to the other device.</div></div>${sw('audio_mute_local', s.audio_mute_local)}</div>` : ''}
+      ${meter}
       ${st(a.tx_on, a.tx_label, a.tx_error)}
-    </div>
-    <p class="help" style="margin:0">To use received audio as a microphone, output to a virtual cable such as VB-Audio "CABLE Input".</p>`;
+    </div>`;
 }
 
 // settings
@@ -535,10 +550,33 @@ function renderSettings() {
     ${opt('start_minimized', s.start_minimized, 'Start minimized', 'Open straight to the tray.')}
     ${opt('close_to_tray', s.close_to_tray, 'Close to tray', 'The close button hides glide instead of quitting.')}
     ${opt('minimize_to_tray', s.minimize_to_tray, 'Minimize to tray', 'Minimizing hides the window to the tray.')}
+    <div class="group">Updates</div>
+    ${opt('auto_update', s.auto_update, 'Update automatically', 'Installs new versions when you’re not using another device.')}
+    <div class="opt"><div class="grow"><div class="t">Version ${esc(S.version)}</div><div class="d" id="updStatus"></div></div><button class="btn" id="updBtn"></button></div>
     <div class="group">About</div>
     <div class="opt"><div class="grow"><div class="t">glide ${esc(S.version)}</div><div class="d">${esc(S.name)}</div></div><button class="btn" id="quitBtn">Quit</button></div>`;
   $('quitBtn').onclick = () => invoke('quit');
+  $('updBtn').onclick = () => (S.update.available ? invoke('install_update') : invoke('check_update')).then(refresh);
+  renderUpdate();
 }
+function renderUpdate() {
+  const u = S.update;
+  let txt, btn = 'Check now', top = '';
+  if (u.installing) { txt = `Installing ${u.available.version}… ${u.downloaded ? (u.downloaded / 1048576).toFixed(1) + ' MB' : ''}`; btn = ''; top = 'Updating…'; }
+  else if (u.checking) { txt = 'Checking…'; btn = ''; }
+  else if (u.error) { txt = u.error; }
+  else if (u.available) { txt = `Version ${u.available.version} is available.`; btn = 'Install & restart'; top = `Update to ${u.available.version}`; }
+  else if (u.checked) { txt = 'You’re up to date.'; }
+  else { txt = 'Not checked yet.'; }
+  if ($('updStatus')) {
+    $('updStatus').textContent = txt;
+    $('updStatus').style.color = u.error ? 'var(--bad)' : '';
+    $('updBtn').textContent = btn; $('updBtn').style.display = btn ? '' : 'none';
+  }
+  $('btnUpdate').textContent = top; $('btnUpdate').style.display = top ? '' : 'none';
+  $('btnUpdate').disabled = !!u.installing;
+}
+$('btnUpdate').onclick = () => invoke('install_update').then(refresh);
 
 // render
 function setStatus(kind, text, pulse) {
@@ -549,6 +587,7 @@ function show(id) { for (const v of document.querySelectorAll('.view')) v.classL
 function render() {
   if (!S) return;
   once('settings', [S.settings, S.autostart, S.name], renderSettings);
+  once('update', S.update, renderUpdate);
   if (S.mode === 'host') {
     page = null; show('v-host');
     const h = S.host, n = h.devices.filter(d => d.online).length;
@@ -561,7 +600,7 @@ function render() {
     $('hotkeyHint').style.visibility = S.settings.hotkey ? 'visible' : 'hidden';
     $('audioHostAside').textContent = audioAside();
     once('map', [h.devices, h.active, S.name], renderMap);
-    once('audioH', [S.settings, S.audio, h.devices], () => { $('audioCardHost').innerHTML = audioCard('host'); });
+    once('audioH', [S.settings, { ...S.audio, tx_level: 0 }, h.devices], () => { $('audioCardHost').innerHTML = audioCard('host'); });
   } else if (S.mode === 'client') {
     page = null; show('v-client');
     const c = S.client, dot = $('orb');
@@ -582,7 +621,7 @@ function render() {
       setStatus('warn', 'Connecting', true);
     }
     $('audioClientAside').textContent = audioAside();
-    once('audioC', [S.settings, S.audio], () => { $('audioCardClient').innerHTML = audioCard('client'); });
+    once('audioC', [S.settings, { ...S.audio, tx_level: 0 }], () => { $('audioCardClient').innerHTML = audioCard('client'); });
   } else {
     setStatus('', 'Idle');
     if (page === 'connect') {
@@ -598,7 +637,10 @@ function render() {
   }
 }
 async function refresh() {
-  try { S = await invoke('get_state'); render(); } catch (e) { setStatus('bad', 'Error'); console.error(e); }
+  try {
+    S = await invoke('get_state'); render();
+    for (const m of document.querySelectorAll('.txmeter')) m.style.width = Math.min(100, S.audio.tx_level / 6) + '%';
+  } catch (e) { setStatus('bad', 'Error'); console.error(e); }
 }
 refresh(); loadAudioDevs();
 setInterval(refresh, 700);

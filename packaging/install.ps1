@@ -16,7 +16,8 @@ if (-not $admin) {
 }
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
-$dir = Join-Path $env:ProgramFiles "glide"
+# Per-user location: glide can update itself here without admin rights.
+$dir = Join-Path $env:LOCALAPPDATA "Programs\glide"
 $exe = Join-Path $dir "glide.exe"
 
 Write-Host "Installing glide to $dir" -ForegroundColor Cyan
@@ -26,10 +27,19 @@ New-Item -ItemType Directory -Force $dir | Out-Null
 Copy-Item (Join-Path $here "glide.exe") $exe -Force
 Unblock-File $exe
 
-# Shortcuts (Start menu for everyone + this user's desktop)
+# Migrate from v0.2 (installed under Program Files).
+$oldDir = Join-Path $env:ProgramFiles "glide"
+if (Test-Path $oldDir) { Remove-Item -Recurse -Force $oldDir -ErrorAction SilentlyContinue }
+Remove-Item (Join-Path $env:ProgramData "Microsoft\Windows\Start Menu\Programs\glide.lnk") -ErrorAction SilentlyContinue
+$run = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+if ((Get-ItemProperty $run -ErrorAction SilentlyContinue).glide) {
+    Set-ItemProperty $run -Name glide -Value "`"$exe`" --tray"   # keep "Start with Windows" pointing at the new copy
+}
+
+# Shortcuts (this user's Start menu + desktop)
 $shell = New-Object -ComObject WScript.Shell
 foreach ($lnk in @(
-    (Join-Path $env:ProgramData "Microsoft\Windows\Start Menu\Programs\glide.lnk"),
+    (Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\glide.lnk"),
     (Join-Path ([Environment]::GetFolderPath("Desktop")) "glide.lnk"))) {
     $s = $shell.CreateShortcut($lnk)
     $s.TargetPath = $exe
@@ -59,6 +69,7 @@ if ($public) {
     Write-Host "Change it in Settings > Network & internet > (your network) > Private network.`n" -ForegroundColor Yellow
 }
 
-Write-Host "glide installed. Opening it now..." -ForegroundColor Green
-Start-Process $exe
+Write-Host "glide installed. It updates itself from now on. Opening it now..." -ForegroundColor Green
+# Launch un-elevated (explorer starts it as the normal user).
+Start-Process explorer.exe -ArgumentList "`"$exe`""
 Start-Sleep -Seconds 2

@@ -40,6 +40,8 @@ pub fn init_process() {
     }
     // A previous crash may have left the cursor hidden.
     restore_cursor();
+    // ...or the speakers muted.
+    super::winaudio::recover();
 }
 
 pub fn desktop_bounds() -> Rect {

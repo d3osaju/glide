@@ -36,6 +36,8 @@ pub trait RawInjector {
 }
 
 #[cfg(windows)]
+pub mod winaudio;
+#[cfg(windows)]
 mod windows;
 #[cfg(windows)]
 pub use self::windows::*;
