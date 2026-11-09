@@ -44,6 +44,7 @@ Devices can also chain off each other.
 appear automatically. Paste the host's code once and press **Connect**; after
 that, one click reconnects to that host.
 
+- **Ctrl+Alt+L** locks the cursor to the current screen until you press it again.
 - Move the cursor off the shared edge to cross over. **Ctrl+Alt+Esc** brings
   it back to the host from anywhere.
 - Closing or minimizing the window sends glide to the **tray**. Left-click
@@ -60,6 +61,8 @@ that, one click reconnects to that host.
 | | Don't switch screens while dragging | on |
 | | Ctrl+Alt+Esc return hotkey | on |
 | | Visible on the network (host discovery) | on |
+| Games | Stay on screen during games (full-screen games keep the cursor; videos and browsers don't) | on |
+| | Per-app override: Auto / Game / Not a game, from the list of recent full-screen apps | Auto |
 | Network | Priority traffic (DSCP marking, anti-torrent lag) | on |
 | | Wi-Fi keepalive | on |
 | App | Start with Windows (opens in the tray) | off |

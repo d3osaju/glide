@@ -59,6 +59,7 @@ pub const HID_RSHIFT: u16 = 0xE5;
 pub const HID_RALT: u16 = 0xE6;
 pub const HID_RGUI: u16 = 0xE7;
 pub const HID_ESC: u16 = 0x29;
+pub const HID_L: u16 = 0x0F;
 pub const HID_PAUSE: u16 = 0x48;
 pub const HID_NUMLOCK: u16 = 0x53;
 

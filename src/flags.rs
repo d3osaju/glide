@@ -14,6 +14,10 @@ pub static HOTKEY: AtomicBool = AtomicBool::new(true);
 pub static DISCOVERABLE: AtomicBool = AtomicBool::new(true);
 /// Don't change screens while a mouse button is held.
 pub static BLOCK_DRAG: AtomicBool = AtomicBool::new(true);
+/// Keep the cursor on this PC while a full-screen game is in front.
+pub static GAME_LOCK: AtomicBool = AtomicBool::new(true);
+/// Ctrl+Alt+L: keep the cursor on the current screen until pressed again.
+pub static MANUAL_LOCK: AtomicBool = AtomicBool::new(false);
 
 pub fn on(f: &AtomicBool) -> bool {
     f.load(Ordering::Relaxed)

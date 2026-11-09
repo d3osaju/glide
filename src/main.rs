@@ -8,6 +8,7 @@ mod clip;
 mod config;
 mod crypto;
 mod flags;
+mod gamelock;
 mod gui;
 mod keymap;
 mod net;
@@ -88,6 +89,12 @@ enum Cmd {
         file: std::path::PathBuf,
         #[arg(long)]
         key: std::path::PathBuf,
+    },
+    /// (debug) Print what the game lock sees in front, once a second.
+    #[command(hide = true)]
+    GameCheck {
+        #[arg(default_value_t = 10)]
+        secs: u32,
     },
     /// Check GitHub for a newer version.
     CheckUpdate,
@@ -190,6 +197,19 @@ fn run(cmd: Cmd) -> Result<(), String> {
                 Ok(())
             }
         },
+        Cmd::GameCheck { secs } => {
+            for _ in 0..secs {
+                match gamelock::check() {
+                    Some(f) => println!(
+                        "{:<34} fullscreen={:<5} game={:<5} {}",
+                        f.app, f.fullscreen, f.game, f.reason
+                    ),
+                    None => println!("(desktop / no window)"),
+                }
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+            Ok(())
+        }
         Cmd::CheckUpdate => match update::check()? {
             Some(r) => {
                 println!("glide {} is available (you have {}): {}", r.version, update::current_version(), r.url);

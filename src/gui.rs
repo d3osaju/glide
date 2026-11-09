@@ -49,6 +49,10 @@ struct Settings {
     audio_target: Option<String>,
     audio_mute_local: bool,
     auto_update: bool,
+    /// Stay on this PC while a full-screen game is in front.
+    game_lock: bool,
+    /// Per-app override: exe name -> is it a game?
+    game_overrides: std::collections::HashMap<String, bool>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
@@ -86,6 +90,8 @@ impl Default for Settings {
             audio_target: None,
             audio_mute_local: true,
             auto_update: true,
+            game_lock: true,
+            game_overrides: Default::default(),
         }
     }
 }
@@ -143,6 +149,7 @@ pub struct App {
     upd: Mutex<UpdState>,
     started: Instant,
     audio_sync: Mutex<()>,
+    game_now: Mutex<Option<String>>,
 }
 
 impl App {
@@ -167,6 +174,7 @@ impl App {
             upd: Mutex::new(UpdState { current: update::current_version(), ..Default::default() }),
             started: Instant::now(),
             audio_sync: Mutex::new(()),
+            game_now: Mutex::new(None),
         };
         app.apply_flags();
         app.save();
@@ -182,6 +190,8 @@ impl App {
         flags::set(&flags::DISCOVERABLE, s.discoverable);
         flags::set(&flags::QOS, s.qos);
         flags::set(&flags::KEEPALIVE, s.keepalive);
+        flags::set(&flags::GAME_LOCK, s.game_lock);
+        crate::gamelock::set_overrides(s.game_overrides.clone());
     }
 
     fn save(&self) {
@@ -546,6 +556,17 @@ impl App {
     }
 
     fn summary(&self) -> String {
+        let base = self.summary_base();
+        if flags::on(&flags::MANUAL_LOCK) {
+            return format!("{base} · locked (Ctrl+Alt+L)");
+        }
+        if let Some(g) = self.game_now.lock().unwrap().as_ref() {
+            return format!("{base} · staying here for {g}");
+        }
+        base
+    }
+
+    fn summary_base(&self) -> String {
         if let Some(h) = self.host.lock().unwrap().as_ref() {
             let n = h.handle.reg.devices().len();
             return match n {
@@ -580,8 +601,18 @@ struct View {
     settings: Settings,
     autostart: bool,
     audio: AudioView,
+    lock: LockView,
     update: UpdState,
     version: &'static str,
+}
+
+#[derive(Serialize)]
+struct LockView {
+    /// Ctrl+Alt+L lock is on.
+    manual: bool,
+    /// A full-screen game is in front right now (and game lock is enabled).
+    game: Option<String>,
+    recent: Vec<crate::gamelock::Foreground>,
 }
 
 #[derive(Serialize)]
@@ -710,6 +741,11 @@ fn get_state(app: AppHandle, st: State<'_, Arc<App>>) -> View {
         autostart: app.autolaunch().is_enabled().unwrap_or(false),
         settings: s,
         audio,
+        lock: LockView {
+            manual: flags::on(&flags::MANUAL_LOCK),
+            game: st.game_now.lock().unwrap().clone(),
+            recent: crate::gamelock::recent(),
+        },
         update: st.upd.lock().unwrap().clone(),
         version: env!("CARGO_PKG_VERSION"),
     }
@@ -868,6 +904,7 @@ fn set_option(app: AppHandle, st: State<'_, Arc<App>>, key: String, value: Value
             "audio_send" => s.audio_send = as_bool()?,
             "audio_mute_local" => s.audio_mute_local = as_bool()?,
             "auto_update" => s.auto_update = as_bool()?,
+            "game_lock" => s.game_lock = as_bool()?,
             "audio_output" => s.audio_output = as_str(),
             "audio_source" => s.audio_source = as_str().unwrap_or_else(|| "loopback".into()),
             "audio_target" => s.audio_target = as_str(),
@@ -887,6 +924,31 @@ fn set_option(app: AppHandle, st: State<'_, Arc<App>>, key: String, value: Value
     }
     st.inner().kick_audio();
     Ok(())
+}
+
+/// value: true = always a game, false = never a game, null = detect automatically.
+#[tauri::command]
+fn set_game_override(st: State<'_, Arc<App>>, app: String, value: Option<bool>) {
+    {
+        let mut s = st.settings.lock().unwrap();
+        match value {
+            Some(v) => {
+                s.game_overrides.insert(app, v);
+            }
+            None => {
+                s.game_overrides.remove(&app);
+            }
+        }
+    }
+    st.apply_flags();
+    st.save();
+}
+
+#[tauri::command]
+fn toggle_lock() -> bool {
+    let on = !flags::on(&flags::MANUAL_LOCK);
+    flags::set(&flags::MANUAL_LOCK, on);
+    on
 }
 
 #[tauri::command]
@@ -935,6 +997,8 @@ pub fn run(launched_by_autostart: bool) {
             new_key,
             set_option,
             audio_devices,
+            set_game_override,
+            toggle_lock,
             check_update,
             install_update,
             copy_text,
@@ -1012,6 +1076,13 @@ pub fn run(launched_by_autostart: bool) {
                         state.auto_place(&d);
                     }
                     state.kick_audio();
+                    // Game lock status for the UI and tray (the router checks on its own at edges).
+                    let game = if flags::on(&flags::GAME_LOCK) {
+                        crate::gamelock::check().filter(|f| f.game).map(|f| f.app)
+                    } else {
+                        None
+                    };
+                    *state.game_now.lock().unwrap() = game;
                     // Updates: check shortly after launch, then every 6 h; install when idle.
                     if state.settings.lock().unwrap().auto_update {
                         let (due, ready) = {

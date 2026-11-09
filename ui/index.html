@@ -220,6 +220,18 @@ input[type=range] { accent-color: var(--accent); width: 100%; }
 .astat.ok { color: var(--ok); }
 .astat.bad { color: var(--bad); }
 
+/* lock bar */
+.lockbar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; margin: -8px 0 22px; border: 1px solid var(--accent); background: var(--accent-soft); border-radius: 10px; font-size: 12.5px; }
+.lockbar svg { width: 15px; height: 15px; color: var(--accent); flex: none; }
+.lockbar .grow { flex: 1; }
+.lockbar b { font-weight: 600; }
+.applist { display: grid; gap: 6px; padding: 4px 0 12px; }
+.app { display: flex; align-items: center; gap: 10px; font-size: 12.5px; }
+.app .grow { flex: 1; min-width: 0; }
+.app .n { font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app .r { color: var(--muted); font-size: 11.5px; }
+.app select { height: 26px; font-size: 12px; }
+
 /* drawer */
 .scrim { position: fixed; inset: 40px 0 0; background: rgba(0,0,0,.25); opacity: 0; pointer-events: none; transition: opacity .15s; z-index: 10; }
 .scrim.on { opacity: 1; pointer-events: auto; }
@@ -279,6 +291,7 @@ input[type=range] { accent-color: var(--accent); width: 100%; }
       <div><h1>Hosting</h1><p class="lead">on <b id="hostName" style="color:var(--text)"></b></p></div>
       <button class="btn danger" id="stopHost">Stop</button>
     </div>
+    <div class="lockbar" id="lockBar" style="display:none"></div>
 
     <div class="section">
       <div class="label">Connection code <span class="aside mono" id="fpBadge"></span></div>
@@ -541,6 +554,11 @@ function renderSettings() {
     ${opt('block_drag', s.block_drag, 'Hold screen while dragging', 'Don\'t switch screens with a mouse button held.')}
     ${opt('hotkey', s.hotkey, 'Return hotkey', 'Ctrl+Alt+Esc brings the cursor back to the host.')}
     ${opt('discoverable', s.discoverable, 'Visible on network', 'Other devices can find this host.')}
+    <div class="group">Games</div>
+    ${opt('game_lock', s.game_lock, 'Stay on screen during games', 'While a full-screen game is in front, the cursor won’t cross to other PCs. Videos and full-screen browsers still cross.')}
+    <div class="opt"><div class="grow"><div class="t">Lock hotkey</div><div class="d">Ctrl+Alt+L keeps the cursor on the current screen until you press it again.</div></div></div>
+    <div class="d" style="color:var(--muted);font-size:12px;margin:10px 0 6px">Full-screen apps seen recently (fix any that are wrong):</div>
+    <div class="applist" id="gameList"></div>
     <div class="group">Network</div>
     ${opt('qos', s.qos, 'Priority traffic', 'Stay smooth during torrents and downloads.')}
     ${opt('keepalive', s.keepalive, 'Wi-Fi keepalive', 'Keep the Wi-Fi radio awake while in control.')}
@@ -556,6 +574,7 @@ function renderSettings() {
     <div class="group">About</div>
     <div class="opt"><div class="grow"><div class="t">glide ${esc(S.version)}</div><div class="d">${esc(S.name)}</div></div><button class="btn" id="quitBtn">Quit</button></div>`;
   $('quitBtn').onclick = () => invoke('quit');
+  sigs.games = null; renderGames();
   $('updBtn').onclick = () => (S.update.available ? invoke('install_update') : invoke('check_update')).then(refresh);
   renderUpdate();
 }
@@ -578,6 +597,32 @@ function renderUpdate() {
 }
 $('btnUpdate').onclick = () => invoke('install_update').then(refresh);
 
+function renderGames() {
+  const el = $('gameList'); if (!el) return;
+  const list = S.lock.recent, ov = S.settings.game_overrides || {};
+  if (!list.length) { el.innerHTML = '<div class="r" style="color:var(--faint);font-size:12px">None yet. Open a game or video full screen and it shows up here.</div>'; return; }
+  el.innerHTML = list.map(f => {
+    const v = f.app in ov ? (ov[f.app] ? 'game' : 'not') : 'auto';
+    return `<div class="app"><div class="grow"><div class="n">${esc(f.app)}</div><div class="r">${f.game ? 'Treated as a game' : 'Not a game'} · ${esc(f.reason)}</div></div>
+      <select data-game="${esc(f.app)}"><option value="auto" ${v === 'auto' ? 'selected' : ''}>Auto</option><option value="game" ${v === 'game' ? 'selected' : ''}>Game</option><option value="not" ${v === 'not' ? 'selected' : ''}>Not a game</option></select></div>`;
+  }).join('');
+}
+document.addEventListener('change', e => {
+  const g = e.target.dataset && e.target.dataset.game;
+  if (!g) return;
+  const v = e.target.value;
+  act(invoke('set_game_override', { app: g, value: v === 'auto' ? null : v === 'game' }));
+});
+const LOCK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>';
+function renderLock() {
+  const L = S.lock, bar = $('lockBar');
+  let html = '';
+  if (L.manual) html = `${LOCK_ICON}<span class="grow"><b>Locked to this screen.</b> Press Ctrl+Alt+L to unlock.</span><button class="btn quiet" id="unlockBtn" style="height:24px;font-size:12px">Unlock</button>`;
+  else if (L.game) html = `${LOCK_ICON}<span class="grow"><b>Staying on this PC</b> while ${esc(L.game)} is full screen.</span>`;
+  bar.style.display = html ? '' : 'none';
+  if (bar.dataset.h !== html) { bar.innerHTML = html; bar.dataset.h = html; const u = $('unlockBtn'); if (u) u.onclick = () => act(invoke('toggle_lock')); }
+}
+
 // render
 function setStatus(kind, text, pulse) {
   $('statusDot').className = 'dot ' + kind + (pulse ? ' pulse' : '');
@@ -587,11 +632,13 @@ function show(id) { for (const v of document.querySelectorAll('.view')) v.classL
 function render() {
   if (!S) return;
   once('settings', [S.settings, S.autostart, S.name], renderSettings);
+  once('games', [S.lock.recent, S.settings.game_overrides], renderGames);
   once('update', S.update, renderUpdate);
   if (S.mode === 'host') {
     page = null; show('v-host');
     const h = S.host, n = h.devices.filter(d => d.online).length;
-    setStatus(n ? 'ok' : 'warn', n ? `Hosting · ${n} connected` : 'Hosting · waiting', !n);
+    setStatus(n ? 'ok' : 'warn', (n ? `Hosting · ${n} connected` : 'Hosting · waiting') + (S.lock.manual || S.lock.game ? ' · locked' : ''), !n);
+    renderLock();
     $('hostName').textContent = S.name;
     once('code', [h.code, h.fingerprint], () => { $('codeText').textContent = h.code; $('fpBadge').textContent = 'key ' + h.fingerprint; });
     once('details', [h.ips, h.port], () => {

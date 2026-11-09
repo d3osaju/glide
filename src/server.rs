@@ -454,6 +454,9 @@ impl Router {
         } else {
             return false;
         };
+        if flags::on(&flags::MANUAL_LOCK) || crate::gamelock::blocking() {
+            return false; // locked to this screen (Ctrl+Alt+L, or a full-screen game)
+        }
         let Some(next) = layout.neighbor(&layout.me, dir).map(str::to_string) else { return false };
         if next == layout.me {
             return false;
@@ -483,6 +486,11 @@ impl Router {
         } else {
             None
         };
+        let dir = dir.filter(|_| !flags::on(&flags::MANUAL_LOCK));
+        if dir.is_none() {
+            a.x = a.x.clamp(r.x as f64, r.right() as f64);
+            a.y = a.y.clamp(r.y as f64, r.bottom() as f64);
+        }
         if let Some(dir) = dir {
             let frac = edge_fraction(dir, a.x, a.y, r);
             let next = self.layout.read().unwrap().neighbor(&a.client.name, dir).map(str::to_string);
@@ -538,6 +546,15 @@ impl CaptureHandler for Router {
                     self.pressed.insert(hid);
                 } else {
                     self.pressed.remove(&hid);
+                }
+                if down && hid == keymap::HID_L && self.ctrl_alt() {
+                    let on = !flags::on(&flags::MANUAL_LOCK);
+                    flags::set(&flags::MANUAL_LOCK, on);
+                    log::info!("screen lock {}", if on { "on" } else { "off" });
+                    return true;
+                }
+                if !down && hid == keymap::HID_L && self.ctrl_alt() {
+                    return true;
                 }
                 if self.active.is_none() {
                     if down {
