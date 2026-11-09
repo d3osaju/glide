@@ -1,6 +1,6 @@
 # glide
 
-**Website:** https://d3osaju.github.io/glide · **Download:** [latest release](https://github.com/d3osaju/glide/releases/latest)
+**Website:** https://glide.zetalabs.in · **Download:** [latest release](https://github.com/d3osaju/glide/releases/latest)
 
 Share one keyboard and mouse across several PCs and Macs on your network.
 Push the cursor off a screen edge and it continues on the next device. glide
