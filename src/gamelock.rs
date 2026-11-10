@@ -273,10 +273,9 @@ mod tests {
         assert!(classify("eldenring.exe", "D:\\SteamLibrary\\steamapps\\common\\ELDEN RING\\eldenring.exe", true, false, false, false).0);
         // A plain full-screen app with no signal stays unlocked.
         assert!(!classify("notepad.exe", "C:\\Windows\\notepad.exe", true, false, false, false).0);
-    }
 
-    #[test]
-    fn overrides_win() {
+        // Overrides beat detection. Kept in this same test because overrides are
+        // global: a separate test running in parallel would race them.
         set_overrides(HashMap::from([("chrome.exe".to_string(), true), ("eldenring.exe".to_string(), false)]));
         assert!(classify("chrome.exe", "", true, false, false, false).0);
         assert!(!classify("eldenring.exe", "D:\\steamapps\\common\\e\\eldenring.exe", true, true, true, false).0);
