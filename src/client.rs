@@ -21,11 +21,15 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 pub struct Options {
+    /// Address from the connection code. Hosts on DHCP change address after a
+    /// restart or Wi-Fi reconnect, so `find` is tried first when available.
     pub server: String,
     pub name: String,
     pub key: Key,
     pub swap_ctrl_cmd: bool,
     pub clipboard: bool,
+    /// Current address of this host as seen by LAN discovery (matched by key fingerprint).
+    pub find: Option<Arc<dyn Fn() -> Vec<SocketAddr> + Send + Sync>>,
 }
 
 /// Wraps a backend injector. Tracks what is held so a disconnect or screen
@@ -139,6 +143,8 @@ pub struct Ctl {
     stream: Mutex<Option<TcpStream>>,
     /// True while the cursor is on this machine.
     pub active: AtomicBool,
+    /// Address of the host we're connected to (may differ from the code's).
+    addr: Mutex<Option<SocketAddr>>,
 }
 
 impl Ctl {
@@ -148,6 +154,7 @@ impl Ctl {
             status: Mutex::new(Status::Connecting),
             stream: Mutex::new(None),
             active: AtomicBool::new(false),
+            addr: Mutex::new(None),
         })
     }
     pub fn status(&self) -> Status {
@@ -155,6 +162,9 @@ impl Ctl {
     }
     fn set(&self, s: Status) {
         *self.status.lock().unwrap() = s;
+    }
+    pub fn addr(&self) -> Option<SocketAddr> {
+        *self.addr.lock().unwrap()
     }
     pub fn stopped(&self) -> bool {
         self.stop.load(Ordering::Relaxed)
@@ -239,12 +249,35 @@ pub fn session<I: RawInjector + Send + 'static>(
     ctl: &Ctl,
     on_clip: &mut dyn FnMut(ClipEvent),
 ) -> std::io::Result<()> {
-    let addr = opts
-        .server
-        .to_socket_addrs()?
-        .next()
-        .ok_or_else(|| net::bad("could not resolve server address"))?;
-    let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(3))?;
+    // Where the host is now (discovery) first, then the address in the code.
+    let coded = opts.server.to_socket_addrs().ok().and_then(|mut a| a.next());
+    let mut candidates: Vec<SocketAddr> = opts.find.as_ref().map(|f| f()).unwrap_or_default();
+    if let Some(c) = coded {
+        if !candidates.contains(&c) {
+            candidates.push(c);
+        }
+    }
+    if candidates.is_empty() {
+        return Err(net::bad("could not resolve server address"));
+    }
+    let mut connected = None;
+    let mut last_err = None;
+    for a in candidates {
+        match TcpStream::connect_timeout(&a, Duration::from_secs(3)) {
+            Ok(s) => {
+                connected = Some((s, a));
+                break;
+            }
+            Err(e) => last_err = Some(e),
+        }
+    }
+    let Some((mut stream, addr)) = connected else {
+        return Err(last_err.unwrap_or_else(|| net::bad("host unreachable")));
+    };
+    if Some(addr) != coded {
+        log::info!("host found at {addr} (the code said {})", opts.server);
+    }
+    *ctl.addr.lock().unwrap() = Some(addr);
     stream.set_nodelay(true)?;
     net::qos_tcp(&stream);
     stream.set_read_timeout(Some(Duration::from_secs(5)))?;

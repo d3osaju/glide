@@ -300,8 +300,13 @@ impl App {
             (s.name.clone(), s.swap_ctrl_cmd)
         };
         self.save();
+        // Listen for the host's announcements so we can follow it to a new address.
+        self.disco.start();
+        let disco = self.disco.clone();
+        let fp = pair::fingerprint(&key);
+        let find: Arc<dyn Fn() -> Vec<std::net::SocketAddr> + Send + Sync> = Arc::new(move || disco.find(&fp));
         let ctl = client::Ctl::new();
-        let opts = client::Options { server: addr.to_string(), name, key, swap_ctrl_cmd: swap, clipboard: true };
+        let opts = client::Options { server: addr.to_string(), name, key, swap_ctrl_cmd: swap, clipboard: true, find: Some(find) };
         {
             let ctl = ctl.clone();
             std::thread::Builder::new().name("client".into()).spawn(move || client::run(opts, ctl)).map_err(|e| e.to_string())?;
@@ -473,6 +478,23 @@ impl App {
                 s.failed = Some((sig, Instant::now()));
             }
         }
+    }
+
+    /// The host moved (new DHCP address): rewrite the saved code to point there,
+    /// so the next start connects straight away.
+    fn refresh_code(&self) {
+        let now = self.client.lock().unwrap().as_ref().and_then(|c| c.ctl.addr());
+        let Some(std::net::SocketAddr::V4(now)) = now else { return };
+        let mut s = self.settings.lock().unwrap();
+        let Some(code) = s.last_code.clone() else { return };
+        let Ok((coded, key)) = pair::decode_code(&code) else { return };
+        if coded == std::net::SocketAddr::V4(now) {
+            return;
+        }
+        s.last_code = Some(pair::encode_code(*now.ip(), now.port(), &key));
+        drop(s);
+        log::info!("host moved to {now}; saved");
+        self.save();
     }
 
     /// True while the cursor is on another device (never restart then).
@@ -700,7 +722,8 @@ fn get_state(app: AppHandle, st: State<'_, Arc<App>>) -> View {
             client::Status::Error(e) => ("error", Some(e)),
             client::Status::Stopped => ("stopped", None),
         };
-        ClientView { status, error, server: c.server.clone(), active: c.ctl.active.load(Ordering::Relaxed) }
+        let server = c.ctl.addr().map(|a| a.to_string()).unwrap_or_else(|| c.server.clone());
+        ClientView { status, error, server, active: c.ctl.active.load(Ordering::Relaxed) }
     });
     let mode = if host.is_some() {
         "host"
@@ -1076,6 +1099,7 @@ pub fn run(launched_by_autostart: bool) {
                         state.auto_place(&d);
                     }
                     state.kick_audio();
+                    state.refresh_code();
                     // Game lock status for the UI and tray (the router checks on its own at edges).
                     let game = if flags::on(&flags::GAME_LOCK) {
                         crate::gamelock::check().filter(|f| f.game).map(|f| f.app)

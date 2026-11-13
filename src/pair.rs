@@ -173,6 +173,19 @@ impl Discovery {
         });
     }
 
+    /// Every address announced recently by the host with this key fingerprint,
+    /// newest first (a host with several adapters announces on each).
+    pub fn find(&self, key_fp: &str) -> Vec<SocketAddr> {
+        let h = self.hosts.lock().unwrap();
+        let mut v: Vec<_> = h
+            .iter()
+            .filter(|(_, (f, seen))| f.key_fp == key_fp && seen.elapsed() < Duration::from_secs(10))
+            .map(|(addr, (_, seen))| (*addr, *seen))
+            .collect();
+        v.sort_by(|a, b| b.1.cmp(&a.1));
+        v.into_iter().map(|(a, _)| a).collect()
+    }
+
     pub fn list(&self) -> Vec<FoundHost> {
         let mut h = self.hosts.lock().unwrap();
         h.retain(|_, (_, seen)| seen.elapsed() < Duration::from_secs(5));

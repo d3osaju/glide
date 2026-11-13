@@ -179,7 +179,7 @@ fn run(cmd: Cmd) -> Result<(), String> {
         }
         Cmd::Client { server, name, key, swap_ctrl_cmd, no_clipboard } => {
             let key = crypto::parse_key(&key)?;
-            client::run(client::Options { server, name, key, swap_ctrl_cmd, clipboard: !no_clipboard }, client::Ctl::new());
+            client::run(client::Options { server, name, key, swap_ctrl_cmd, clipboard: !no_clipboard, find: None }, client::Ctl::new());
             Ok(())
         }
         Cmd::AudioDevices => audio::list_devices(),

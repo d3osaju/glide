@@ -57,6 +57,7 @@ fn loopback_end_to_end() {
             key: psk,
             swap_ctrl_cmd: false,
             clipboard: false,
+            find: None,
         };
         let screen = Rect { x: 0, y: 0, w: 2560, h: 1600 };
         let ctl = client::Ctl::new();
@@ -122,4 +123,47 @@ fn no_duplicate_application() {
     let m = Msg::Seq { seq: 9, inner: Box::new(Msg::Leave) };
     let pt = o.open(&s.seal(&m.to_vec())).unwrap();
     assert_eq!(Msg::decode(&pt), Some(m));
+}
+
+/// The host got a new DHCP address: the code's address is dead, but LAN
+/// discovery knows where the host is now. The client must connect anyway.
+#[test]
+fn follows_host_to_new_address() {
+    let psk = [4u8; 32];
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let real = listener.local_addr().unwrap();
+    let reg = Arc::new(Registry::default());
+    let udp = Arc::new(UdpSocket::bind("127.0.0.1:0").unwrap());
+    {
+        let (reg, udp) = (reg.clone(), udp.clone());
+        std::thread::spawn(move || {
+            let (s, _) = listener.accept().unwrap();
+            let _ = server::handle_client(s, psk, reg, udp, None);
+        });
+    }
+    // Nothing listens here: the "old" address from the connection code.
+    let dead = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+    let (tx, _rx) = mpsc::channel();
+    let out = Arc::new(Mutex::new(Output::new(Rec(tx), false)));
+    let ctl = client::Ctl::new();
+    {
+        let ctl = ctl.clone();
+        std::thread::spawn(move || {
+            let opts = client::Options {
+                server: dead.to_string(),
+                name: "moved".into(),
+                key: psk,
+                swap_ctrl_cmd: false,
+                clipboard: false,
+                find: Some(Arc::new(move || vec![dead, real])), // unreachable adapter first
+            };
+            let _ = client::session(&opts, out, Rect { x: 0, y: 0, w: 800, h: 600 }, &ctl, &mut |_| {});
+        });
+    }
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while reg.get("moved").is_none() {
+        assert!(Instant::now() < deadline, "client never reached the host at its new address");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(ctl.addr(), Some(real));
 }

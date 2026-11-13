@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 pub const PING_EVERY: Duration = Duration::from_secs(2);
-pub const DEAD_AFTER: Duration = Duration::from_secs(7);
+pub const DEAD_AFTER: Duration = Duration::from_secs(10);
 
 pub struct Client {
     pub name: String,
